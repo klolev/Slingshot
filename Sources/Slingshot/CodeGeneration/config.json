@@ -10,6 +10,13 @@
          ]
       },
       {
+         "name": "GenericSequence",
+         "associatedTypes": [
+            "Element"
+         ],
+         "properties": []
+      },
+      {
          "name": "Sendable",
          "properties": []
       },
@@ -91,6 +98,9 @@
                "name": "Sequence"
             },
             {
+               "name": "GenericSequence"
+            },
+            {
                "name": "Sendable"
             },
             {
@@ -130,6 +140,9 @@
          "conformances": [
             {
                "name": "Sequence"
+            },
+            {
+               "name": "GenericSequence"
             },
             {
                "name": "Sendable"

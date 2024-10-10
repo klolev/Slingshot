@@ -49,15 +49,16 @@ public extension Set.NonEmpty {
     }
 }
 
-//public extension Set.NonEmpty where Element: Comparable {
-//    func min() -> Element {
-//        min(by: { $0 < $1 })
-//    }
-//
-//    func max() -> Element {
-//        max(by: { $0 < $1 })
-//    }
-//}
+
+public extension Set.NonEmpty where Element: Comparable {
+    func min() -> Element {
+        min(by: { $0 < $1 })
+    }
+
+    func max() -> Element {
+        max(by: { $0 < $1 })
+    }
+}
 
 
 extension Set.NonEmpty: Sendable where Set.Element: Sendable {}

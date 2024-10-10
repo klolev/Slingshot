@@ -43,3 +43,12 @@ public extension AsyncSequence {
         .init(prefix: head, tail: self)
     }
 }
+
+public extension Sequence {
+    var asyncStream: AsyncStream<Element> {
+        var iterator = makeIterator()
+        return AsyncStream {
+            iterator.next()
+        }
+    }
+}
