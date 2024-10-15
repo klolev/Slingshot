@@ -1,4 +1,4 @@
-extension Optional: Sequence {
+extension Optional: @retroactive Sequence {
     public struct OptionalIterator: IteratorProtocol {
         var value: Wrapped?
         

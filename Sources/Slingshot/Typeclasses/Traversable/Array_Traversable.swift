@@ -23,18 +23,14 @@ public extension Array {
     }
 
     func traverse<T>(_ transform: @escaping (Element) -> Promise<T>) -> Promise<[T]> {
-        Promise<[T]> { handler in
-            var completedResults: [Int: T] = [:]
-
+        Promise<[T]> {
+            var completedResults: [T] = []
+            
             for (i, input) in enumerated() {
-                transform(input).onCompletion { result in
-                    completedResults[i] = result
-
-                    if completedResults.count == count {
-                        handler(completedResults.sorted(by: { a, b in a.key < b.key }).map(\.value))
-                    }
-                }
+                completedResults[i] = await transform(input).value
             }
+            
+            return completedResults
         }
     }
 

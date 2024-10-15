@@ -15,7 +15,7 @@ public extension ViewRepresentable {
         updateView(nsView, context: context)
     }
 }
-#else
+#elseif !os(watchOS)
 public protocol ViewRepresentable: UIViewRepresentable {
     func makeView(context: Context) -> UIViewType
     func updateView(_ view: UIViewType, context: Context)

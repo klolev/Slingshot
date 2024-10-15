@@ -1,6 +1,6 @@
 extension Promise: Pure {
     public static func pure(_ x: Value) -> Self {
-        Promise { handler in handler(x) } as! Self
+        Promise { x }
     }
     
 }

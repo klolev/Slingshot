@@ -20,8 +20,8 @@ extension Sequence where Self: UnsignedInteger {
     }
 }
 
-extension UInt: Sequence {}
-extension UInt8: Sequence {}
-extension UInt16: Sequence {}
-extension UInt32: Sequence {}
-extension UInt64: Sequence {}
+extension UInt: @retroactive Sequence {}
+extension UInt8: @retroactive Sequence {}
+extension UInt16: @retroactive Sequence {}
+extension UInt32: @retroactive Sequence {}
+extension UInt64: @retroactive Sequence {}

@@ -1,4 +1,4 @@
-extension Result: Sequence {
+extension Result: @retroactive Sequence {
     public struct SuccessIterator: IteratorProtocol {
         var value: Result<Success, Failure>?
         

@@ -88,6 +88,21 @@
    ],
    "structs": [
       {
+         "name": "Promise",
+         "type": "generic",
+         "arguments": [
+             "Value"
+         ],
+         "conformances": [
+             {
+                "name": "Pure"
+             },
+             {
+                "name": "Functor"
+             }
+         ]
+      },
+      {
          "name": "Array",
          "type": "generic",
          "arguments": [
@@ -261,7 +276,8 @@
          "applyOn": [
             "Array",
             "Set",
-            "Optional"
+            "Optional",
+            "Promise"
          ]
       }
    ]
