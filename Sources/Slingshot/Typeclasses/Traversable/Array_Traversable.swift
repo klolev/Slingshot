@@ -26,8 +26,8 @@ public extension Array {
         Promise<[T]> {
             var completedResults: [T] = []
             
-            for (i, input) in enumerated() {
-                completedResults[i] = await transform(input).value
+            for input in self {
+                completedResults.append(await transform(input).value)
             }
             
             return completedResults
