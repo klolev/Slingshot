@@ -12,6 +12,11 @@ extension Set {
             self.first = first
             self.container = container
         }
+
+        public init(first: Element, _ rest: Element...) {
+            self.first = first
+            self.container = Set<Element>.pure(first) <> Set<Element>.init(rest)
+        }
         
         public init?(container: Set<Element>) {
             guard let first = container.first else { return nil }

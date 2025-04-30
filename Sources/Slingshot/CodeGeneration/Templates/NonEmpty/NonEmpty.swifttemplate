@@ -12,6 +12,11 @@ extension \(type) {
             self.first = first
             self.container = container
         }
+
+        public init(first: \(item), _ rest: \(item)...) {
+            self.first = first
+            self.container = \(fullyQualifiedType).pure(first) <> \(fullyQualifiedType).init(rest)
+        }
         
         public init?(container: \(fullyQualifiedType)) {
             guard let first = container.first else { return nil }

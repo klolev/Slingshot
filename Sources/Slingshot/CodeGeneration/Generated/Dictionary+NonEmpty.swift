@@ -12,6 +12,11 @@ extension Dictionary {
             self.first = first
             self.container = container
         }
+
+        public init(first: (key: Key, value: Value), _ rest: (key: Key, value: Value)...) {
+            self.first = first
+            self.container = Dictionary.pure(first) <> Dictionary.init(rest)
+        }
         
         public init?(container: Dictionary) {
             guard let first = container.first else { return nil }

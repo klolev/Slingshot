@@ -12,6 +12,11 @@ extension String {
             self.first = first
             self.container = container
         }
+
+        public init(first: Character, _ rest: Character...) {
+            self.first = first
+            self.container = String.pure(first) <> String.init(rest)
+        }
         
         public init?(container: String) {
             guard let first = container.first else { return nil }

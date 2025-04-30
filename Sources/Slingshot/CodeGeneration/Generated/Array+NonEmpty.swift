@@ -12,6 +12,11 @@ extension Array {
             self.first = first
             self.container = container
         }
+
+        public init(first: Element, _ rest: Element...) {
+            self.first = first
+            self.container = Array<Element>.pure(first) <> Array<Element>.init(rest)
+        }
         
         public init?(container: Array<Element>) {
             guard let first = container.first else { return nil }
