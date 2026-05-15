@@ -1,3 +1,4 @@
+#if canImport(SwiftUI)
 import SwiftUI
 
 public extension View {
@@ -10,7 +11,7 @@ public extension View {
             self
         }
     }
-    
+
     @ViewBuilder
     func ifLet<Value, Content>(_ value: Value?,
                                @ViewBuilder content: (Self, Value) -> Content) -> some View  where Content: View {
@@ -21,3 +22,4 @@ public extension View {
         }
     }
 }
+#endif

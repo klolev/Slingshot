@@ -1,3 +1,4 @@
+#if canImport(SwiftUI)
 import SwiftUI
 
 public extension Binding {
@@ -6,3 +7,4 @@ public extension Binding {
               set: { value in self.wrappedValue = transformBack(value) })
     }
 }
+#endif

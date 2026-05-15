@@ -1,3 +1,4 @@
+#if canImport(SwiftUI)
 import SwiftUI
 
 #if canImport(AppKit)
@@ -30,4 +31,5 @@ public extension ViewRepresentable {
         updateView(uiView, context: context)
     }
 }
+#endif
 #endif
