@@ -20,4 +20,8 @@ public extension Reader {
     func apRight<O>(rhs: Reader<Dependency, O>) -> Reader<Dependency, O> {
         flatMap(constant(rhs))
     }
+
+    func liftA2<B, C>(_ other: Reader<Dependency, B>, _ f: @escaping (Result, B) -> C) -> Reader<Dependency, C> {
+        Reader<Dependency, B>.ap(map { a in { b in f(a, b) } })(other)
+    }
 }

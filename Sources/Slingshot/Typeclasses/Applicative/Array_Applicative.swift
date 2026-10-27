@@ -20,4 +20,8 @@ public extension Array {
     func apRight<O>(rhs: [O]) -> [O] {
         flatMap(constant(rhs))
     }
+
+    func liftA2<B, C>(_ other: [B], _ f: @escaping (Element, B) -> C) -> [C] {
+        flatMap { a in other.map { b in f(a, b) } }
+    }
 }
