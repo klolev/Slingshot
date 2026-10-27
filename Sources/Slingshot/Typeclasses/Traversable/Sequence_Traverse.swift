@@ -93,7 +93,7 @@ public extension Concurrently {
 public extension Concurrently {
     /// Runs the transforms as `Strategy.current` allows and returns the first `left` in input order.
     /// A `left` doesn't decide the result on its own, since an earlier element could still fail,
-    /// so the remaining work is cancelled, and nothing new is started, once every element before it has finished.
+    /// so the remaining work is cancelled once every element before it has finished. Nothing new starts after a `left`.
     static func traverse<S: Sequence, L: Sendable>(_ elements: S, _ transform: @escaping @Sendable (S.Element) -> Concurrently<Either<L, Value>>) -> Concurrently<Either<L, [Value]>> where S.Element: Sendable {
         let elements = Array(elements)
         return Concurrently<Either<L, [Value]>> {
@@ -131,7 +131,8 @@ public extension Concurrently {
                         group.cancelAll()
                         return .left(firstLeft.value)
                     }
-                    if started < elements.count {
+                    // Elements not started yet come after the left, so they can't change the result
+                    if firstLeft == nil, started < elements.count {
                         start(started, in: &group)
                         started += 1
                     }

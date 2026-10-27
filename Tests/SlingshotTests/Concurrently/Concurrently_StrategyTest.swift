@@ -66,6 +66,24 @@ struct Concurrently_StrategyTest {
             #expect(result.left == "bad")
             #expect(await starts.indices == [0, 1])
         }
+
+        @Test("nothing new starts after a failure, even while earlier elements run")
+        func nothingNewStartsAfterAFailureEvenWhileEarlierElementsRun() async {
+            let starts = StartLog()
+            let result = await Array(0..<4).traverse { index in
+                Concurrently<Either<String, Int>> {
+                    await starts.record(index)
+                    if index == 0 {
+                        try? await Task.sleep(nanoseconds: 30_000_000)
+                    }
+                    return index == 1 ? .left("bad") : .right(index)
+                }
+            }
+            .using(.parallel(width: 2))
+            .value
+            #expect(result.left == "bad")
+            #expect(await starts.indices.sorted() == [0, 1])
+        }
     }
 
     @Suite("task options")
@@ -73,7 +91,6 @@ struct Concurrently_StrategyTest {
         @Test("children run with the strategy's priority")
         func childrenRunWithTheStrategysPriority() async {
             // basePriority is what the task was created with; currentPriority can be escalated by the waiting parent
-            guard #available(macOS 14, iOS 17, tvOS 17, watchOS 10, *) else { return }
             let priorities = await [0].traverse { _ in Concurrently { Task.basePriority } }
                 .using(Strategy.parallel.priority(.high))
                 .value

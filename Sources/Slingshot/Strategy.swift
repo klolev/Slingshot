@@ -11,9 +11,9 @@ public struct Strategy: Sendable {
     public var priority: TaskPriority?
     /// Passed to `addTask(name:)` where the runtime supports task names
     public var name: String?
+    /// Passed to `addTask(executorPreference:)`
+    public var executor: (any TaskExecutor)?
 
-    // `any TaskExecutor` only exists from macOS 15 / iOS 18, so it's stored type-erased
-    private var executorStorage: (any Sendable)?
     private var innerStorage: Inner?
 
     public init(width: Int? = nil, priority: TaskPriority? = nil, name: String? = nil) {
@@ -26,13 +26,6 @@ public struct Strategy: Sendable {
     public var inner: Strategy {
         get { innerStorage?.strategy ?? self }
         set { innerStorage = Inner(strategy: newValue) }
-    }
-
-    /// Passed to `addTask(executorPreference:)`
-    @available(macOS 15, iOS 18, tvOS 18, watchOS 11, visionOS 2, *)
-    public var executor: (any TaskExecutor)? {
-        get { executorStorage as? any TaskExecutor }
-        set { executorStorage = newValue }
     }
 
     // A struct can't contain itself directly
@@ -74,7 +67,6 @@ public extension Strategy {
         return copy
     }
 
-    @available(macOS 15, iOS 18, tvOS 18, watchOS 11, visionOS 2, *)
     func executor(_ executor: (any TaskExecutor)?) -> Strategy {
         var copy = self
         copy.executor = executor
@@ -96,10 +88,24 @@ extension Strategy {
         }
         if #available(macOS 26, iOS 26, tvOS 26, watchOS 26, visionOS 26, *) {
             group.addTask(name: name, executorPreference: executor, priority: priority, operation: child)
-        } else if #available(macOS 15, iOS 18, tvOS 18, watchOS 11, visionOS 2, *) {
-            group.addTask(executorPreference: executor, priority: priority, operation: child)
         } else {
-            group.addTask(priority: priority, operation: child)
+            group.addTask(executorPreference: executor, priority: priority, operation: child)
+        }
+    }
+}
+
+extension Strategy {
+    /// Starts `operation` as an unstructured task with this strategy's task options, running it under `inner`.
+    /// For work that has to outlive a task group's scope, like the elements of a stream.
+    func makeTask(_ operation: @escaping @Sendable () async -> Void) -> Task<Void, Never> {
+        let inner = inner
+        let child: @Sendable () async -> Void = {
+            await Strategy.$current.withValue(inner) { await operation() }
+        }
+        if #available(macOS 26, iOS 26, tvOS 26, watchOS 26, visionOS 26, *) {
+            return Task(name: name, executorPreference: executor, priority: priority, operation: child)
+        } else {
+            return Task(executorPreference: executor, priority: priority, operation: child)
         }
     }
 }
