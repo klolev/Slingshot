@@ -25,4 +25,8 @@ public extension Result {
     func apRight<O>(_ rhs: Result<O, Failure>) -> Result<O, Failure> {
         Result<O, Failure>.ap(replace(with: identity))(rhs)
     }
+
+    func liftA2<B, C>(_ other: Result<B, Failure>, _ f: @escaping (Success, B) -> C) -> Result<C, Failure> {
+        Result<B, Failure>.ap(map { a in { b in f(a, b) } })(other)
+    }
 }

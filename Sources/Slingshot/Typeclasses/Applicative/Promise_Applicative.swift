@@ -21,4 +21,8 @@ public extension Promise {
     func apRight<O>(rhs: Promise<O>) -> Promise<O> {
         flatMap(constant(rhs))
     }
+
+    func liftA2<B, C>(_ other: Promise<B>, _ f: @escaping (Value, B) -> C) -> Promise<C> {
+        Promise<B>.ap(map { a in { b in f(a, b) } })(other)
+    }
 }

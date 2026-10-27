@@ -93,6 +93,11 @@
          "arguments": [
              "Value"
          ],
+         "applicative": {
+            "innerParam": "Value",
+            "protocol": "PromiseProtocol",
+            "witnessKeypath": "promise"
+         },
          "conformances": [
              {
                 "name": "Pure"
@@ -152,6 +157,7 @@
          "arguments": [
             "Element"
          ],
+         "elementConstraints": ["Hashable"],
          "conformances": [
             {
                "name": "Sequence"
@@ -248,6 +254,44 @@
          "name": "Optional",
          "type": "concrete",
          "elements": "Wrapped",
+         "applicative": {
+            "innerParam": "Wrapped",
+            "protocol": "OptionalProtocol",
+            "witnessKeypath": "value"
+         },
+         "conformances": []
+      },
+      {
+         "name": "Result",
+         "type": "generic",
+         "arguments": ["Success", "Failure"],
+         "applicative": {
+            "innerParam": "Success",
+            "protocol": "ResultProtocol",
+            "witnessKeypath": "result"
+         },
+         "conformances": []
+      },
+      {
+         "name": "Validation",
+         "type": "generic",
+         "arguments": ["Failure", "Value"],
+         "applicative": {
+            "innerParam": "Value",
+            "protocol": "ValidationProtocol",
+            "witnessKeypath": "validation"
+         },
+         "conformances": []
+      },
+      {
+         "name": "Either",
+         "type": "generic",
+         "arguments": ["L", "R"],
+         "applicative": {
+            "innerParam": "R",
+            "protocol": "EitherProtocol",
+            "witnessKeypath": "either"
+         },
          "conformances": []
       }
    ],
@@ -278,6 +322,23 @@
             "Set",
             "Optional",
             "Promise"
+         ]
+      },
+      {
+         "name": "Traversable",
+         "type": "traversable",
+         "applyOn": [
+            "Array",
+            "Set",
+            "Optional"
+         ]
+      },
+      {
+         "name": "TraversableNonEmpty",
+         "type": "traversableNonEmpty",
+         "applyOn": [
+            "Array",
+            "Set"
          ]
       }
    ]

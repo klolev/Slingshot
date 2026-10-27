@@ -35,4 +35,8 @@ public extension Optional {
             return .zero
         }
     }
+
+    func liftA2<B, C>(_ other: B?, _ f: @escaping (Wrapped, B) -> C) -> C? {
+        Optional<B>.ap(map { a in { b in f(a, b) } })(other)
+    }
 }

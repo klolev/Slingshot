@@ -11,12 +11,12 @@ class Optional_SemigroupTest: QuickSpec {
                 }
 
                 it("returns the present operand if only one of them is present") {
-                    expect(Optional<Int>.some(1) <> nil).to(be(1))
-                    expect(Optional<Int>.none <> .some(1)).to(be(1))
+                    expect(Optional<Int>.some(1) <> nil).to(equal(1))
+                    expect(Optional<Int>.none <> .some(1)).to(equal(1))
                 }
 
                 it("returns the result of the operation if both operands are present") {
-                    expect(Optional<Int>.some(1) <> .some(2)).to(be(3))
+                    expect(Optional<Int>.some(1) <> .some(2)).to(equal(3))
                 }
             }
         }

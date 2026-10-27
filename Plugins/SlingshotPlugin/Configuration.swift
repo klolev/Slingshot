@@ -2,12 +2,12 @@ struct Configuration: Decodable {
     let protocols: [ProtocolMetadata]
     let structs: [StructMetadata]
     let templates: [TemplateMetadata]
-    
+
     struct TemplateMetadata: Decodable {
         enum TemplateType: String, Decodable {
-            case containerStruct, protocolExtension
+            case containerStruct, protocolExtension, traversable, traversableNonEmpty
         }
-        
+
         let name: String
         let applyOn: [String]
         let type: TemplateType
@@ -18,16 +18,24 @@ struct Configuration: Decodable {
             case generic
             case concrete
         }
-        
+
         struct Conformance: Decodable {
             let name: String
             let `where`: String?
         }
-        
+
+        struct ApplicativeMetadata: Decodable {
+            let innerParam: String
+            let `protocol`: String?
+            let witnessKeypath: String?
+        }
+
         let name: String
         let type: StructType
         let arguments: [String]?
         let elements: String?
+        let applicative: ApplicativeMetadata?
+        let elementConstraints: [String]?
         let conformances: [Conformance]
     }
     

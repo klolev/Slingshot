@@ -23,4 +23,8 @@ public extension Either {
     func apRight<O>(_ rhs: Either<L, O>) -> Either<L, O> {
         Either<L, O>.ap(replace(with: identity))(rhs)
     }
+
+    func liftA2<B, C>(_ other: Either<L, B>, _ f: @escaping (R, B) -> C) -> Either<L, C> {
+        Either<L, B>.ap(map { a in { b in f(a, b) } })(other)
+    }
 }

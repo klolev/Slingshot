@@ -29,4 +29,8 @@ public extension Validation {
     func apRight<O>(_ rhs: Validation<Failure, O>) -> Validation<Failure, O> {
         Validation<Failure, O>.ap(replace(with: identity))(rhs)
     }
+
+    func liftA2<B, C>(_ other: Validation<Failure, B>, _ f: @escaping (Value, B) -> C) -> Validation<Failure, C> {
+        Validation<Failure, B>.ap(map { a in { b in f(a, b) } })(other)
+    }
 }

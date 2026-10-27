@@ -41,6 +41,8 @@ struct SlingshotPlugin: CommandPlugin {
     
     private static let templates: [Configuration.TemplateMetadata.TemplateType: Template] = [
         .containerStruct: ContainerStructTemplate(),
-        .protocolExtension: ProtocolExtensionTemplate()
+        .protocolExtension: ProtocolExtensionTemplate(),
+        .traversable: TraversableTemplate(),
+        .traversableNonEmpty: TraversableNonEmptyTemplate()
     ]
 }

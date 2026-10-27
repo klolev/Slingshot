@@ -9,13 +9,13 @@ class Optional_FoldableTest: QuickSpec {
                 it("returns initial when value is nil") {
                     expect(Optional<Int>.none.reduce("a") { result, value in
                         result + String(value)
-                    }).to(be("a"))
+                    }).to(equal("a"))
                 }
 
                 it("returns result when value is present") {
                     expect(Optional<Int>.some(3).reduce("a") { result, value in
                         result + String(value)
-                    }).to(be("a3"))
+                    }).to(equal("a3"))
                 }
             }
 
@@ -23,7 +23,7 @@ class Optional_FoldableTest: QuickSpec {
                 it("returns initial when value is nil") {
                     expect(Optional<Int>.none.reduce(into: []) { result, value in
                         result.append(value)
-                    }).to(be([]))
+                    }).to(equal([]))
                 }
 
                 it("returns result when value is present") {

@@ -7,7 +7,7 @@ class Optional_FunctorTest: QuickSpec {
         describe("Optional functor") {
             context("map") {
                 it("maps its value when some") {
-                    expect(Optional.some(1).map { $0 + 1 }).to(be(2))
+                    expect(Optional.some(1).map { $0 + 1 }).to(equal(2))
                 }
 
                 it("maps to nil when its value is none") {
@@ -17,7 +17,7 @@ class Optional_FunctorTest: QuickSpec {
 
             context("replace") {
                 it("replaces its value when some") {
-                    expect(Optional.some(1).replace(with: 2)).to(be(2))
+                    expect(Optional.some(1).replace(with: 2)).to(equal(2))
                 }
 
                 it("stays nil if its value is none") {

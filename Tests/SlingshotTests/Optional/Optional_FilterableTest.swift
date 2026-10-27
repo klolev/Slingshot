@@ -16,7 +16,7 @@ class Optional_FilterableTest: QuickSpec {
                 }
 
                 it("returns its value when its value is present and the predicate returns true") {
-                    expect(Optional.some(3).filter { $0 == 3 }).to(be(.some(3)))
+                    expect(Optional.some(3).filter { $0 == 3 }).to(equal(.some(3)))
                 }
             }
         }
