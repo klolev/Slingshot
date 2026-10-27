@@ -11,10 +11,6 @@ let package = Package(
             name: "Slingshot",
             targets: ["Slingshot"]),
     ],
-    dependencies: [
-        .package(url: "https://github.com/Quick/Nimble.git", from: "9.2.1"),
-        .package(url: "https://github.com/Quick/Quick.git", from: "4.0.0"),
-    ],
     targets: [
         .target(name: "Slingshot"),
         .plugin(name: "SlingshotPlugin", 
@@ -23,9 +19,7 @@ let package = Package(
                                      permissions: [.writeToPackageDirectory(reason: "Yeeting the universe")])),
         .testTarget(
             name: "SlingshotTests",
-            dependencies: ["Slingshot",
-                           .product(name: "Nimble", package: "Nimble"),
-                           .product(name: "Quick", package: "Quick")],
+            dependencies: ["Slingshot"],
             path: "Tests"),
     ]
 )

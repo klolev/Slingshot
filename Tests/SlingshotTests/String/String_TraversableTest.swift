@@ -1,73 +1,80 @@
-import Quick
-import Nimble
+import Testing
 @testable import Slingshot
 
-class String_TraversableTest: QuickSpec {
-    override func spec() {
-        describe("String Traversable") {
-            let upper: (Character) -> Character = { Character($0.uppercased()) }
+private let upper: (Character) -> Character = { Character($0.uppercased()) }
 
-            context("traverse (Optional)") {
-                it("returns the transformed string when all transforms succeed") {
-                    expect("abc".traverse { $0.isLetter ? upper($0) : nil }).to(equal("ABC"))
-                }
+@Suite("String Traversable")
+struct String_TraversableTest {
+    @Suite("traverse (Optional)")
+    struct TraverseOptional {
+        @Test("returns the transformed string when all transforms succeed")
+        func returnsTheTransformedStringWhenAllTransformsSucceed() {
+            #expect("abc".traverse { $0.isLetter ? upper($0) : nil } == "ABC")
+        }
 
-                it("returns nil when any transform fails") {
-                    expect("a1c".traverse { $0.isLetter ? upper($0) : nil }).to(beNil())
-                }
+        @Test("returns nil when any transform fails")
+        func returnsNilWhenAnyTransformFails() {
+            #expect("a1c".traverse { $0.isLetter ? upper($0) : nil } == nil)
+        }
 
-                it("returns some empty string for empty input") {
-                    expect("".traverse { Optional.some($0) }).to(equal(""))
-                }
-            }
+        @Test("returns some empty string for empty input")
+        func returnsSomeEmptyStringForEmptyInput() {
+            #expect("".traverse { Optional.some($0) } == "")
+        }
+    }
 
-            context("traverse (Result)") {
-                it("returns the first failure") {
-                    let result: Result<String, TestError> = "a1c2".traverse { $0.isLetter ? .success($0) : .failure(.bad) }
-                    expect(result).to(equal(.failure(.bad)))
-                }
-            }
+    @Suite("traverse (Result)")
+    struct TraverseResult {
+        @Test("returns the first failure")
+        func returnsTheFirstFailure() {
+            let result: Result<String, TestError> = "a1c2".traverse { $0.isLetter ? .success($0) : .failure(.bad) }
+            #expect(result == .failure(.bad))
+        }
+    }
 
-            context("traverse (Validation)") {
-                it("accumulates a failure for every rejected character") {
-                    let result: Validation<Character, String> = "a1c2".traverse { $0.isLetter ? .success(upper($0)) : .fail($0) }
-                    expect(result.failures).to(equal(["1", "2"]))
-                }
-            }
+    @Suite("traverse (Validation)")
+    struct TraverseValidation {
+        @Test("accumulates a failure for every rejected character")
+        func accumulatesAFailureForEveryRejectedCharacter() {
+            let result: Validation<Character, String> = "a1c2".traverse { $0.isLetter ? .success(upper($0)) : .fail($0) }
+            #expect(result.failures == ["1", "2"])
+        }
+    }
 
-            context("traverse (Either)") {
-                it("returns right with the transformed string") {
-                    let result: Either<String, String> = "abc".traverse { .right(upper($0)) }
-                    expect(result.right).to(equal("ABC"))
-                }
-            }
+    @Suite("traverse (Either)")
+    struct TraverseEither {
+        @Test("returns right with the transformed string")
+        func returnsRightWithTheTransformedString() {
+            let result: Either<String, String> = "abc".traverse { .right(upper($0)) }
+            #expect(result.right == "ABC")
+        }
+    }
 
-            context("traverse (Promise)") {
-                it("resolves to the transformed string") {
-                    waitUntil { done in
-                        Task {
-                            let result = await "abc".traverse { Promise.pure(upper($0)) }.value
-                            expect(result).to(equal("ABC"))
-                            done()
-                        }
-                    }
-                }
-            }
+    @Suite("traverse (Promise)")
+    struct TraversePromise {
+        @Test("resolves to the transformed string")
+        func resolvesToTheTransformedString() async {
+            let result = await "abc".traverse { Promise.pure(upper($0)) }.value
+            #expect(result == "ABC")
+        }
+    }
 
-            context("Substring") {
-                it("traverses into a Substring") {
-                    let result: Substring? = "xabcx".dropFirst().dropLast().traverse { upper($0) }
-                    expect(result).to(equal("ABC"))
-                }
-            }
+    @Suite("Substring")
+    struct SubstringTraversal {
+        @Test("traverses into a Substring")
+        func traversesIntoASubstring() {
+            let result: Substring? = "xabcx".dropFirst().dropLast().traverse { upper($0) }
+            #expect(result == "ABC")
+        }
+    }
 
-            context("Array keeping its element type") {
-                it("still resolves to an array") {
-                    let result: [Int]? = [1, 2, 3].traverse { .some($0 * 2) }
-                    expect(result).to(equal([2, 4, 6]))
-                    expect([1, 2, 3].traverse { Optional.some($0 * 2) }).to(equal([2, 4, 6]))
-                }
-            }
+    @Suite("Array keeping its element type")
+    struct ArrayKeepingItsElementType {
+        @Test("still resolves to an array")
+        func stillResolvesToAnArray() {
+            let result: [Int]? = [1, 2, 3].traverse { .some($0 * 2) }
+            #expect(result == [2, 4, 6])
+            #expect([1, 2, 3].traverse { Optional.some($0 * 2) } == [2, 4, 6])
         }
     }
 }

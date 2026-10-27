@@ -1,21 +1,14 @@
-import Quick
-import Nimble
+import Testing
 @testable import Slingshot
 
-class Promise_ApplicativeTest: QuickSpec {
-    override func spec() {
-        describe("Promise applicative") {
-            context("liftA2") {
-                it("combines both resolved values") {
-                    waitUntil { done in
-                        Task {
-                            let result = await Promise.pure(2).liftA2(Promise.pure(3), +).value
-                            expect(result).to(equal(5))
-                            done()
-                        }
-                    }
-                }
-            }
+@Suite("Promise applicative")
+struct Promise_ApplicativeTest {
+    @Suite("liftA2")
+    struct LiftA2 {
+        @Test("combines both resolved values")
+        func combinesBothResolvedValues() async {
+            let result = await Promise.pure(2).liftA2(Promise.pure(3), +).value
+            #expect(result == 5)
         }
     }
 }

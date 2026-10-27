@@ -1,37 +1,39 @@
-import Quick
-import Nimble
+import Testing
 @testable import Slingshot
 
-class Optional_FoldableTest: QuickSpec {
-    override func spec() {
-        describe("Optional foldable") {
-            context("reduce") {
-                it("returns initial when value is nil") {
-                    expect(Optional<Int>.none.reduce("a") { result, value in
-                        result + String(value)
-                    }).to(equal("a"))
-                }
+@Suite("Optional foldable")
+struct Optional_FoldableTest {
+    @Suite("reduce")
+    struct Reduce {
+        @Test("returns initial when value is nil")
+        func returnsInitialWhenValueIsNil() {
+            #expect(Optional<Int>.none.reduce("a") { result, value in
+                result + String(value)
+            } == "a")
+        }
 
-                it("returns result when value is present") {
-                    expect(Optional<Int>.some(3).reduce("a") { result, value in
-                        result + String(value)
-                    }).to(equal("a3"))
-                }
-            }
+        @Test("returns result when value is present")
+        func returnsResultWhenValueIsPresent() {
+            #expect(Optional<Int>.some(3).reduce("a") { result, value in
+                result + String(value)
+            } == "a3")
+        }
+    }
 
-            context("reduce into") {
-                it("returns initial when value is nil") {
-                    expect(Optional<Int>.none.reduce(into: []) { result, value in
-                        result.append(value)
-                    }).to(equal([]))
-                }
+    @Suite("reduce into")
+    struct ReduceInto {
+        @Test("returns initial when value is nil")
+        func returnsInitialWhenValueIsNil() {
+            #expect(Optional<Int>.none.reduce(into: []) { result, value in
+                result.append(value)
+            } == [])
+        }
 
-                it("returns result when value is present") {
-                    expect(Optional<Int>.some(3).reduce(into: []) { result, value in
-                        result.append(value)
-                    }).to(equal([3]))
-                }
-            }
+        @Test("returns result when value is present")
+        func returnsResultWhenValueIsPresent() {
+            #expect(Optional<Int>.some(3).reduce(into: []) { result, value in
+                result.append(value)
+            } == [3])
         }
     }
 }

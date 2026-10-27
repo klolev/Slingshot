@@ -1,76 +1,86 @@
-import Quick
-import Nimble
+import Testing
 @testable import Slingshot
 
-class Array_NonEmptyTraversableTest: QuickSpec {
-    override func spec() {
-        describe("Array.NonEmpty Traversable") {
-            context("traverse (Optional)") {
-                it("returns some nonempty when all transforms succeed") {
-                    let ne = [Int].NonEmpty(first: 1, 2, 3)
-                    let result = ne.traverse { .some($0 * 2) }
-                    expect(result?.first).to(equal(2))
-                    expect(result?.erased).to(equal([2, 4, 6]))
-                }
+@Suite("Array.NonEmpty Traversable")
+struct Array_NonEmptyTraversableTest {
+    @Suite("traverse (Optional)")
+    struct TraverseOptional {
+        @Test("returns some nonempty when all transforms succeed")
+        func returnsSomeNonemptyWhenAllTransformsSucceed() {
+            let ne = [Int].NonEmpty(first: 1, 2, 3)
+            let result = ne.traverse { .some($0 * 2) }
+            #expect(result?.first == 2)
+            #expect(result?.erased == [2, 4, 6])
+        }
 
-                it("returns nil when any transform fails") {
-                    let ne = [Int].NonEmpty(first: 1, 2, 3)
-                    let result = ne.traverse { $0 == 2 ? nil : .some($0) }
-                    expect(result).to(beNil())
-                }
-            }
+        @Test("returns nil when any transform fails")
+        func returnsNilWhenAnyTransformFails() {
+            let ne = [Int].NonEmpty(first: 1, 2, 3)
+            let result = ne.traverse { $0 == 2 ? nil : .some($0) }
+            #expect(result == nil)
+        }
+    }
 
-            context("traverse (Result)") {
-                it("returns success nonempty when all succeed") {
-                    let ne = [Int].NonEmpty(first: 10, 20)
-                    let result: Result<[Int].NonEmpty, TestError> = ne.traverse { .success($0 + 1) }
-                    expect(try result.get().erased).to(equal([11, 21]))
-                }
+    @Suite("traverse (Result)")
+    struct TraverseResult {
+        @Test("returns success nonempty when all succeed")
+        func returnsSuccessNonemptyWhenAllSucceed() throws {
+            let ne = [Int].NonEmpty(first: 10, 20)
+            let result: Result<[Int].NonEmpty, TestError> = ne.traverse { .success($0 + 1) }
+            #expect(try result.get().erased == [11, 21])
+        }
 
-                it("returns failure when any fails") {
-                    let ne = [Int].NonEmpty(first: 1, 2)
-                    let result: Result<[Int].NonEmpty, TestError> = ne.traverse { _ in .failure(.bad) }
-                    expect(result).to(equal(.failure(.bad)))
-                }
-            }
+        @Test("returns failure when any fails")
+        func returnsFailureWhenAnyFails() {
+            let ne = [Int].NonEmpty(first: 1, 2)
+            let result: Result<[Int].NonEmpty, TestError> = ne.traverse { _ in .failure(.bad) }
+            #expect(result == .failure(.bad))
+        }
+    }
 
-            context("traverse (Either)") {
-                it("returns right nonempty when all succeed") {
-                    let ne = [Int].NonEmpty(first: 5, 6)
-                    let result: Either<String, [Int].NonEmpty> = ne.traverse { .right($0 * 3) }
-                    expect(result.right?.erased).to(equal([15, 18]))
-                }
+    @Suite("traverse (Either)")
+    struct TraverseEither {
+        @Test("returns right nonempty when all succeed")
+        func returnsRightNonemptyWhenAllSucceed() {
+            let ne = [Int].NonEmpty(first: 5, 6)
+            let result: Either<String, [Int].NonEmpty> = ne.traverse { .right($0 * 3) }
+            #expect(result.right?.erased == [15, 18])
+        }
 
-                it("returns left on failure") {
-                    let ne = [Int].NonEmpty(first: 1)
-                    let result: Either<String, [Int].NonEmpty> = ne.traverse { _ in .left("no") }
-                    expect(result.left).to(equal("no"))
-                }
-            }
+        @Test("returns left on failure")
+        func returnsLeftOnFailure() {
+            let ne = [Int].NonEmpty(first: 1)
+            let result: Either<String, [Int].NonEmpty> = ne.traverse { _ in .left("no") }
+            #expect(result.left == "no")
+        }
+    }
 
-            context("traverse (Validation)") {
-                it("returns success when all succeed") {
-                    let ne = [Int].NonEmpty(first: 1, 2)
-                    let result: Validation<String, [Int].NonEmpty> = ne.traverse { .success($0 * 10) }
-                    expect(result.value?.erased).to(equal([10, 20]))
-                }
+    @Suite("traverse (Validation)")
+    struct TraverseValidation {
+        @Test("returns success when all succeed")
+        func returnsSuccessWhenAllSucceed() {
+            let ne = [Int].NonEmpty(first: 1, 2)
+            let result: Validation<String, [Int].NonEmpty> = ne.traverse { .success($0 * 10) }
+            #expect(result.value?.erased == [10, 20])
+        }
 
-                it("accumulates failures") {
-                    let ne = [Int].NonEmpty(first: 1, 2, 3)
-                    let result: Validation<String, [Int].NonEmpty> = ne.traverse { .fail("e\($0)") }
-                    expect(result.failures).to(equal(["e1", "e2", "e3"]))
-                }
-            }
+        @Test("accumulates failures")
+        func accumulatesFailures() {
+            let ne = [Int].NonEmpty(first: 1, 2, 3)
+            let result: Validation<String, [Int].NonEmpty> = ne.traverse { .fail("e\($0)") }
+            #expect(result.failures == ["e1", "e2", "e3"])
+        }
+    }
 
-            context("traverse visits each element exactly once") {
-                it("follows the container when it does not start with first") {
-                    let ne = [Int].NonEmpty(first: 0, container: [5, 6])
-                    var visited: [Int] = []
-                    let result = ne.traverse { x -> Int? in visited.append(x); return x }
-                    expect(visited).to(equal([5, 6]))
-                    expect(result?.erased).to(equal([5, 6]))
-                }
-            }
+    @Suite("traverse visits each element exactly once")
+    struct TraverseVisitsEachElementExactlyOnce {
+        @Test("follows the container when it does not start with first")
+        func followsTheContainerWhenItDoesNotStartWithFirst() {
+            let ne = [Int].NonEmpty(first: 0, container: [5, 6])
+            var visited: [Int] = []
+            let result = ne.traverse { x -> Int? in visited.append(x); return x }
+            #expect(visited == [5, 6])
+            #expect(result?.erased == [5, 6])
         }
     }
 }

@@ -1,29 +1,31 @@
-import Quick
-import Nimble
+import Testing
 @testable import Slingshot
 
-class Optional_FunctorTest: QuickSpec {
-    override func spec() {
-        describe("Optional functor") {
-            context("map") {
-                it("maps its value when some") {
-                    expect(Optional.some(1).map { $0 + 1 }).to(equal(2))
-                }
+@Suite("Optional functor")
+struct Optional_FunctorTest {
+    @Suite("map")
+    struct Map {
+        @Test("maps its value when some")
+        func mapsItsValueWhenSome() {
+            #expect(Optional.some(1).map { $0 + 1 } == 2)
+        }
 
-                it("maps to nil when its value is none") {
-                    expect(Optional.none.map { $0 + 1 }).to(beNil())
-                }
-            }
+        @Test("maps to nil when its value is none")
+        func mapsToNilWhenItsValueIsNone() {
+            #expect(Optional.none.map { $0 + 1 } == nil)
+        }
+    }
 
-            context("replace") {
-                it("replaces its value when some") {
-                    expect(Optional.some(1).replace(with: 2)).to(equal(2))
-                }
+    @Suite("replace")
+    struct Replace {
+        @Test("replaces its value when some")
+        func replacesItsValueWhenSome() {
+            #expect(Optional.some(1).replace(with: 2) == 2)
+        }
 
-                it("stays nil if its value is none") {
-                    expect(Optional<Int>.none.replace(with: 2)).to(beNil())
-                }
-            }
+        @Test("stays nil if its value is none")
+        func staysNilIfItsValueIsNone() {
+            #expect(Optional<Int>.none.replace(with: 2) == nil)
         }
     }
 }

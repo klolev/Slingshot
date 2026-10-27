@@ -1,24 +1,24 @@
-import Quick
-import Nimble
+import Testing
 @testable import Slingshot
 
-class Optional_FilterableTest: QuickSpec {
-    override func spec() {
-        describe("Optional filterable") {
-            context("filter") {
-                it("returns nil when its value is nil, no matter the predicate") {
-                    expect(Optional<Int>.none.filter(constant(false))).to(beNil())
-                    expect(Optional<Int>.none.filter(constant(true))).to(beNil())
-                }
+@Suite("Optional filterable")
+struct Optional_FilterableTest {
+    @Suite("filter")
+    struct Filter {
+        @Test("returns nil when its value is nil, no matter the predicate")
+        func returnsNilWhenItsValueIsNilNoMatterThePredicate() {
+            #expect(Optional<Int>.none.filter(constant(false)) == nil)
+            #expect(Optional<Int>.none.filter(constant(true)) == nil)
+        }
 
-                it("returns nil when its value is present but the predicate returns false") {
-                    expect(Optional.some(3).filter { $0 != 3 }).to(beNil())
-                }
+        @Test("returns nil when its value is present but the predicate returns false")
+        func returnsNilWhenItsValueIsPresentButThePredicateReturnsFalse() {
+            #expect(Optional.some(3).filter { $0 != 3 } == nil)
+        }
 
-                it("returns its value when its value is present and the predicate returns true") {
-                    expect(Optional.some(3).filter { $0 == 3 }).to(equal(.some(3)))
-                }
-            }
+        @Test("returns its value when its value is present and the predicate returns true")
+        func returnsItsValueWhenItsValueIsPresentAndThePredicateReturnsTrue() {
+            #expect(Optional.some(3).filter { $0 == 3 } == .some(3))
         }
     }
 }
