@@ -43,6 +43,7 @@ struct SlingshotPlugin: CommandPlugin {
         .containerStruct: ContainerStructTemplate(),
         .protocolExtension: ProtocolExtensionTemplate(),
         .traversable: TraversableTemplate(),
-        .traversableNonEmpty: TraversableNonEmptyTemplate()
+        .traversableNonEmpty: TraversableNonEmptyTemplate(),
+        .zipBuilder: ZipBuilderTemplate()
     ]
 }

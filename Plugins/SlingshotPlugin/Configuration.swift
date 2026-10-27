@@ -5,7 +5,7 @@ struct Configuration: Decodable {
 
     struct TemplateMetadata: Decodable {
         enum TemplateType: String, Decodable {
-            case containerStruct, protocolExtension, traversable, traversableNonEmpty
+            case containerStruct, protocolExtension, traversable, traversableNonEmpty, zipBuilder
         }
 
         let name: String

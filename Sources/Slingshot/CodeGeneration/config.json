@@ -357,6 +357,18 @@
          ]
       },
       {
+         "name": "ZipBuilder",
+         "type": "zipBuilder",
+         "applyOn": [
+            "Concurrently",
+            "IO",
+            "Optional",
+            "Result",
+            "Validation",
+            "Either"
+         ]
+      },
+      {
          "name": "TraversableNonEmpty",
          "type": "traversableNonEmpty",
          "applyOn": [
