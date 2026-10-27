@@ -1,6 +1,6 @@
 public extension Array {
-    func traverse<T>(_ transform: @escaping (Element) -> Promise<T>) -> Promise<Array<T>> {
-        Promise<T>.traverse(self, transform).map { Array<T>($0) }
+    func traverse<T>(_ transform: @escaping (Element) -> IO<T>) -> IO<Array<T>> {
+        IO<T>.traverse(self, transform).map { Array<T>($0) }
     }
 }
 
@@ -28,9 +28,9 @@ public extension Array {
     }
 }
 
-public extension Array where Element: PromiseProtocol {
-    var sequenced: Promise<Array<Element.Value>> {
-        traverse(\.promise)
+public extension Array where Element: IOProtocol {
+    var sequenced: IO<Array<Element.Value>> {
+        traverse(\.io)
     }
 }
 

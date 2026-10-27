@@ -17,7 +17,7 @@ public extension RangeReplaceableCollection {
         Either<L, Element>.traverse(self, transform).map { Self($0) }
     }
 
-    func traverse(_ transform: @escaping (Element) -> Promise<Element>) -> Promise<Self> {
-        Promise<Element>.traverse(self, transform).map { Self($0) }
+    func traverse(_ transform: @escaping (Element) -> IO<Element>) -> IO<Self> {
+        IO<Element>.traverse(self, transform).map { Self($0) }
     }
 }

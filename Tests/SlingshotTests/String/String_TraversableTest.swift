@@ -50,11 +50,11 @@ struct String_TraversableTest {
         }
     }
 
-    @Suite("traverse (Promise)")
-    struct TraversePromise {
+    @Suite("traverse (IO)")
+    struct TraverseIO {
         @Test("resolves to the transformed string")
         func resolvesToTheTransformedString() async {
-            let result = await "abc".traverse { Promise.pure(upper($0)) }.value
+            let result = await "abc".traverse { IO.pure(upper($0)) }.value
             #expect(result == "ABC")
         }
     }

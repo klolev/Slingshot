@@ -88,15 +88,15 @@
    ],
    "structs": [
       {
-         "name": "Promise",
+         "name": "IO",
          "type": "generic",
          "arguments": [
              "Value"
          ],
          "applicative": {
             "innerParam": "Value",
-            "protocol": "PromiseProtocol",
-            "witnessKeypath": "promise"
+            "protocol": "IOProtocol",
+            "witnessKeypath": "io"
          },
          "conformances": [
              {
@@ -321,7 +321,7 @@
             "Array",
             "Set",
             "Optional",
-            "Promise"
+            "IO"
          ]
       },
       {

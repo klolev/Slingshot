@@ -138,18 +138,18 @@ struct Array_TraversableTest {
         }
     }
 
-    @Suite("traverse (Promise)")
-    struct TraversePromise {
+    @Suite("traverse (IO)")
+    struct TraverseIO {
         @Test("resolves to the transformed values in order")
         func resolvesToTheTransformedValuesInOrder() async {
-            let result = await [1, 2, 3].traverse { Promise.pure($0 * 2) }.value
+            let result = await [1, 2, 3].traverse { IO.pure($0 * 2) }.value
             #expect(result == [2, 4, 6])
         }
 
         @Test("handles large inputs without overflowing the stack")
         func handlesLargeInputsWithoutOverflowingTheStack() async {
             let input = Array(0..<100_000)
-            let result = await input.traverse { Promise.pure($0) }.value
+            let result = await input.traverse { IO.pure($0) }.value
             #expect(result == input)
         }
     }

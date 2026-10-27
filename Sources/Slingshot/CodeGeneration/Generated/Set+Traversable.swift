@@ -1,6 +1,6 @@
 public extension Set {
-    func traverse<T>(_ transform: @escaping (Element) -> Promise<T>) -> Promise<Set<T>> {
-        Promise<T>.traverse(self, transform).map { Set<T>($0) }
+    func traverse<T>(_ transform: @escaping (Element) -> IO<T>) -> IO<Set<T>> {
+        IO<T>.traverse(self, transform).map { Set<T>($0) }
     }
 }
 
@@ -28,9 +28,9 @@ public extension Set {
     }
 }
 
-public extension Set where Element: PromiseProtocol, Element.Value: Hashable {
-    var sequenced: Promise<Set<Element.Value>> {
-        traverse(\.promise)
+public extension Set where Element: IOProtocol, Element.Value: Hashable {
+    var sequenced: IO<Set<Element.Value>> {
+        traverse(\.io)
     }
 }
 

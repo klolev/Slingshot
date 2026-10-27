@@ -35,7 +35,7 @@ public extension Optional {
         }
     }
 
-    func traverse<T>(_ transform: @escaping (Wrapped) -> Promise<T>) -> Promise<Optional<T>> {
+    func traverse<T>(_ transform: @escaping (Wrapped) -> IO<T>) -> IO<Optional<T>> {
         switch self {
         case .some(let x):
             transform(x).map(Optional<T>.some)
@@ -69,8 +69,8 @@ public extension Optional where Wrapped: EitherProtocol {
     }
 }
 
-public extension Optional where Wrapped: PromiseProtocol {
-    var sequenced: Promise<Optional<Wrapped.Value>> {
-        traverse(\.promise)
+public extension Optional where Wrapped: IOProtocol {
+    var sequenced: IO<Optional<Wrapped.Value>> {
+        traverse(\.io)
     }
 }

@@ -6,7 +6,7 @@ public struct ArrayLens<Element> {
         self.array = array
     }
     
-    subscript<T>(dynamicMember member: KeyPath<Element, T>) -> [T] {
+    public subscript<T>(dynamicMember member: KeyPath<Element, T>) -> [T] {
         array.map { $0[keyPath: member] }
     }
 }

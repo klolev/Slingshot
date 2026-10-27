@@ -1,12 +1,12 @@
 import Foundation
 
-public protocol PromiseProtocol {
+public protocol IOProtocol {
     associatedtype Value
 
-    var promise: Promise<Value> { get }
+    var io: IO<Value> { get }
 }
 
-public struct Promise<Value> {
+public struct IO<Value> {
     let _f: () async -> Value
     
     public init(_ f: @escaping () async -> Value) {

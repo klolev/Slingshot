@@ -61,9 +61,9 @@ public extension Validation {
     }
 }
 
-public extension Promise {
-    static func traverse<S: Sequence>(_ elements: S, _ transform: @escaping (S.Element) -> Promise<Value>) -> Promise<[Value]> {
-        Promise<[Value]> {
+public extension IO {
+    static func traverse<S: Sequence>(_ elements: S, _ transform: @escaping (S.Element) -> IO<Value>) -> IO<[Value]> {
+        IO<[Value]> {
             var values: [Value] = []
             for element in elements {
                 values.append(await transform(element).value)

@@ -9,11 +9,11 @@ public extension Result where Element: OptionalProtocol, Element.Wrapped: Result
     }
 }
 
-public extension Result where Element: PromiseProtocol, Element.Value: ResultProtocol, Element.Value.Failure == Failure {
-    var sequenced: Promise<Result<Element.Value.Success, Element.Value.Failure>> {
+public extension Result where Element: IOProtocol, Element.Value: ResultProtocol, Element.Value.Failure == Failure {
+    var sequenced: IO<Result<Element.Value.Success, Element.Value.Failure>> {
         switch self {
         case .success(let success):
-            success.promise.map(\.result)
+            success.io.map(\.result)
         case .failure(let failure):
             .pure(.failure(failure))
         }
