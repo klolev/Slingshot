@@ -7,13 +7,15 @@ public protocol IOProtocol {
 }
 
 public struct IO<Value> {
-    let _f: () async -> Value
+    // nonsending all the way down: the computation runs on whichever actor awaits it
+    let _f: nonisolated(nonsending) () async -> Value
     
-    public init(_ f: @escaping () async -> Value) {
+    public init(_ f: @escaping (nonisolated(nonsending) () async -> Value)) {
         self._f = f
     }
     
-    public var value: Value {
+    /// Runs on the caller's actor, so a non-Sendable `IO` can be awaited from actor-isolated code.
+    nonisolated(nonsending) public var value: Value {
         get async {
             await _f()
         }
