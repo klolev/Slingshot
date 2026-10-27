@@ -108,6 +108,27 @@
          ]
       },
       {
+         "name": "Concurrently",
+         "type": "generic",
+         "arguments": [
+             "Value"
+         ],
+         "applicative": {
+            "innerParam": "Value",
+            "protocol": "ConcurrentlyProtocol",
+            "witnessKeypath": "concurrently",
+            "sendable": true
+         },
+         "conformances": [
+             {
+                "name": "Pure"
+             },
+             {
+                "name": "Functor"
+             }
+         ]
+      },
+      {
          "name": "Array",
          "type": "generic",
          "arguments": [
@@ -257,7 +278,8 @@
          "applicative": {
             "innerParam": "Wrapped",
             "protocol": "OptionalProtocol",
-            "witnessKeypath": "value"
+            "witnessKeypath": "value",
+            "shortCircuits": true
          },
          "conformances": []
       },
@@ -268,7 +290,8 @@
          "applicative": {
             "innerParam": "Success",
             "protocol": "ResultProtocol",
-            "witnessKeypath": "result"
+            "witnessKeypath": "result",
+            "shortCircuits": true
          },
          "conformances": []
       },
@@ -290,7 +313,8 @@
          "applicative": {
             "innerParam": "R",
             "protocol": "EitherProtocol",
-            "witnessKeypath": "either"
+            "witnessKeypath": "either",
+            "shortCircuits": true
          },
          "conformances": []
       }

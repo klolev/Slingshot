@@ -19,3 +19,7 @@ public struct IO<Value> {
         }
     }
 }
+
+extension IO: IOProtocol {
+    public var io: IO<Value> { self }
+}

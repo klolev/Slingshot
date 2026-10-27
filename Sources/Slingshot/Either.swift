@@ -69,3 +69,5 @@ public extension Either where L: Error {
 extension Either: EitherProtocol {
     public var either: Either<L, R> { self }
 }
+
+extension Either: Sendable where L: Sendable, R: Sendable {}

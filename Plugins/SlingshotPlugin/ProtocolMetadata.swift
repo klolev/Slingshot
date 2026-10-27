@@ -157,10 +157,6 @@ struct ProtocolMetadata: Decodable {
     }
 }
 
-let functionRegex = #/(func (?<functionName>\S+) ?|subscript)\(.*\)( -> (?<returnType>[A-Za-z.<>?]+))?/#
-let argsRegex = #/((?<argumentLabel>\w+) )?(?<argument>\w+): ((?<isMutable>inout) )?(?<argumentType>[A-Za-z0-9.]+)(, )?/#
-let variableRegex = #/var (?<variableName>\w+): (?<variableType>[A-Za-z0-9.]+)/#
-
 extension ProtocolMetadata.Property: Decodable {
     enum DecodingError: Error {
         case invalidString(String)
@@ -170,7 +166,11 @@ extension ProtocolMetadata.Property: Decodable {
         let container = try decoder.singleValueContainer()
         let value = try container.decode(String.self)
         let isStatic = value.starts(with: "static")
-        
+        // Locals rather than globals: Regex isn't Sendable
+        let functionRegex = #/(func (?<functionName>\S+) ?|subscript)\(.*\)( -> (?<returnType>[A-Za-z.<>?]+))?/#
+        let argsRegex = #/((?<argumentLabel>\w+) )?(?<argument>\w+): ((?<isMutable>inout) )?(?<argumentType>[A-Za-z0-9.]+)(, )?/#
+        let variableRegex = #/var (?<variableName>\w+): (?<variableType>[A-Za-z0-9.]+)/#
+
         if let match = try variableRegex.firstMatch(in: value) {
             self = .variable(String(match.output.variableName),
                              isStatic: isStatic,

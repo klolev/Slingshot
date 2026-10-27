@@ -39,13 +39,32 @@ struct TraversalTypes {
     }
 
     /// The functor's type parameters other than the one it wraps, e.g. `Failure` for `Result`
-    private var freeParams: [String] {
+    var freeParams: [String] {
         functor.arguments!.filter { $0 != applicative.innerParam }
     }
 
     /// Generic parameters for `traverse`: `T` followed by the functor's free parameters
     var genericParams: String {
         "<\((["T"] + freeParams).joined(separator: ", "))>"
+    }
+
+    /// Pairs of a Sendable applicative with a short-circuiting one, e.g. `Concurrently` with `Either`,
+    /// whose composition gets a `traverse` that cancels the work after the first failure
+    static func shortCircuitingPairs(in configuration: Configuration) -> [(outer: Configuration.StructMetadata, inner: Configuration.StructMetadata)] {
+        let applicatives = configuration.structs.filter { $0.applicative != nil }
+        let outers = applicatives.filter { $0.applicative?.sendable == true }
+        let inners = applicatives.filter { $0.applicative?.shortCircuits == true }
+        return outers.flatMap { outer in inners.map { inner in (outer, inner) } }
+    }
+
+    /// Attributes for the `transform` parameter of `traverse`
+    var transformAttributes: String {
+        applicative.sendable == true ? "@escaping @Sendable" : "@escaping"
+    }
+
+    /// The `where` clause `traverse` needs on the container, e.g. ` where Element: Sendable`
+    var traverseWhereClause: String {
+        applicative.sendable == true ? " where \(element): Sendable" : ""
     }
 
     /// The container rebuilt around `inner`, e.g. `Set<inner>`

@@ -28,6 +28,10 @@ struct Configuration: Decodable {
             let innerParam: String
             let `protocol`: String?
             let witnessKeypath: String?
+            /// The applicative runs its effects concurrently, so traversals need Sendable transforms and elements
+            let sendable: Bool?
+            /// The applicative stops at its first failure, so a concurrent traversal into it can cancel the work after that failure
+            let shortCircuits: Bool?
         }
 
         let name: String

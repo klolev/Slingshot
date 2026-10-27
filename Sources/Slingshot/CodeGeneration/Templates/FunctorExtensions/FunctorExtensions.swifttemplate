@@ -4,7 +4,7 @@ public extension \(type) {
     }
     
     static func replace<C>(with x: C) -> (\(type)<\(typeArg)>) -> \(type)<C> {
-        flip(\(type)<\(typeArg)>.replace(with:))(x)
+        { items in items.replace(with: x) }
     }
     
     static func map<U>(_ transform: @escaping (\(typeArg)) -> U) -> (\(type)<\(typeArg)>) -> \(type)<U> {

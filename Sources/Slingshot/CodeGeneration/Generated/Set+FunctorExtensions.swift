@@ -4,7 +4,7 @@ public extension Set {
     }
     
     static func replace<C>(with x: C) -> (Set<Element>) -> Set<C> {
-        flip(Set<Element>.replace(with:))(x)
+        { items in items.replace(with: x) }
     }
     
     static func map<U>(_ transform: @escaping (Element) -> U) -> (Set<Element>) -> Set<U> {

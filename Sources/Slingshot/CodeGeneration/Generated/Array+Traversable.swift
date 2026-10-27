@@ -4,6 +4,12 @@ public extension Array {
     }
 }
 
+public extension Array where Element: Sendable {
+    func traverse<T>(_ transform: @escaping @Sendable (Element) -> Concurrently<T>) -> Concurrently<Array<T>> {
+        Concurrently<T>.traverse(self, transform).map { Array<T>($0) }
+    }
+}
+
 public extension Array {
     func traverse<T>(_ transform: @escaping (Element) -> Optional<T>) -> Optional<Array<T>> {
         Optional<T>.traverse(self, transform).map { Array<T>($0) }
@@ -28,9 +34,33 @@ public extension Array {
     }
 }
 
+public extension Array where Element: Sendable {
+    func traverse<T>(_ transform: @escaping @Sendable (Element) -> Concurrently<Optional<T>>) -> Concurrently<Optional<Array<T>>> {
+        Concurrently<T>.traverse(self, transform).map { $0.map { Array<T>($0) } }
+    }
+}
+
+public extension Array where Element: Sendable {
+    func traverse<T, Failure>(_ transform: @escaping @Sendable (Element) -> Concurrently<Result<T, Failure>>) -> Concurrently<Result<Array<T>, Failure>> {
+        Concurrently<T>.traverse(self, transform).map { $0.map { Array<T>($0) } }
+    }
+}
+
+public extension Array where Element: Sendable {
+    func traverse<T, L>(_ transform: @escaping @Sendable (Element) -> Concurrently<Either<L, T>>) -> Concurrently<Either<L, Array<T>>> {
+        Concurrently<T>.traverse(self, transform).map { $0.map { Array<T>($0) } }
+    }
+}
+
 public extension Array where Element: IOProtocol {
     var sequenced: IO<Array<Element.Value>> {
         traverse(\.io)
+    }
+}
+
+public extension Array where Element: ConcurrentlyProtocol {
+    var sequenced: Concurrently<Array<Element.Value>> {
+        traverse(\.concurrently)
     }
 }
 

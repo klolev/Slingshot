@@ -4,7 +4,7 @@ public extension Optional {
     }
     
     static func replace<C>(with x: C) -> (Optional<Wrapped>) -> Optional<C> {
-        flip(Optional<Wrapped>.replace(with:))(x)
+        { items in items.replace(with: x) }
     }
     
     static func map<U>(_ transform: @escaping (Wrapped) -> U) -> (Optional<Wrapped>) -> Optional<U> {

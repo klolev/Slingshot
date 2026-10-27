@@ -21,3 +21,21 @@ public extension RangeReplaceableCollection {
         IO<Element>.traverse(self, transform).map { Self($0) }
     }
 }
+
+public extension RangeReplaceableCollection where Self: Sendable, Element: Sendable {
+    func traverse(_ transform: @escaping @Sendable (Element) -> Concurrently<Element>) -> Concurrently<Self> {
+        Concurrently<Element>.traverse(self, transform).map { Self($0) }
+    }
+
+    func traverse(_ transform: @escaping @Sendable (Element) -> Concurrently<Optional<Element>>) -> Concurrently<Optional<Self>> {
+        Concurrently<Element>.traverse(self, transform).map { $0.map { Self($0) } }
+    }
+
+    func traverse<Failure>(_ transform: @escaping @Sendable (Element) -> Concurrently<Result<Element, Failure>>) -> Concurrently<Result<Self, Failure>> {
+        Concurrently<Element>.traverse(self, transform).map { $0.map { Self($0) } }
+    }
+
+    func traverse<L>(_ transform: @escaping @Sendable (Element) -> Concurrently<Either<L, Element>>) -> Concurrently<Either<L, Self>> {
+        Concurrently<Element>.traverse(self, transform).map { $0.map { Self($0) } }
+    }
+}

@@ -152,6 +152,23 @@ struct Array_TraversableTest {
             let result = await input.traverse { IO.pure($0) }.value
             #expect(result == input)
         }
+
+        @Test("accepts transforms that capture non-Sendable state")
+        func acceptsTransformsThatCaptureNonSendableState() async {
+            final class Counter { var count = 0 }
+            let counter = Counter()
+            let result = await [1, 2, 3].traverse { x in
+                counter.count += 1
+                return IO.pure(x)
+            }.value
+            #expect(result == [1, 2, 3])
+            #expect(counter.count == 3)
+        }
+
+        @Test("sequenced resolves every element in order")
+        func sequencedResolvesEveryElementInOrder() async {
+            #expect(await [IO.pure(1), IO.pure(2)].sequenced.value == [1, 2])
+        }
     }
 }
 

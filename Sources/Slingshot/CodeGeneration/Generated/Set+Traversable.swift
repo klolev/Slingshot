@@ -4,6 +4,12 @@ public extension Set {
     }
 }
 
+public extension Set where Element: Sendable {
+    func traverse<T>(_ transform: @escaping @Sendable (Element) -> Concurrently<T>) -> Concurrently<Set<T>> {
+        Concurrently<T>.traverse(self, transform).map { Set<T>($0) }
+    }
+}
+
 public extension Set {
     func traverse<T>(_ transform: @escaping (Element) -> Optional<T>) -> Optional<Set<T>> {
         Optional<T>.traverse(self, transform).map { Set<T>($0) }
@@ -28,9 +34,33 @@ public extension Set {
     }
 }
 
+public extension Set where Element: Sendable {
+    func traverse<T>(_ transform: @escaping @Sendable (Element) -> Concurrently<Optional<T>>) -> Concurrently<Optional<Set<T>>> {
+        Concurrently<T>.traverse(self, transform).map { $0.map { Set<T>($0) } }
+    }
+}
+
+public extension Set where Element: Sendable {
+    func traverse<T, Failure>(_ transform: @escaping @Sendable (Element) -> Concurrently<Result<T, Failure>>) -> Concurrently<Result<Set<T>, Failure>> {
+        Concurrently<T>.traverse(self, transform).map { $0.map { Set<T>($0) } }
+    }
+}
+
+public extension Set where Element: Sendable {
+    func traverse<T, L>(_ transform: @escaping @Sendable (Element) -> Concurrently<Either<L, T>>) -> Concurrently<Either<L, Set<T>>> {
+        Concurrently<T>.traverse(self, transform).map { $0.map { Set<T>($0) } }
+    }
+}
+
 public extension Set where Element: IOProtocol, Element.Value: Hashable {
     var sequenced: IO<Set<Element.Value>> {
         traverse(\.io)
+    }
+}
+
+public extension Set where Element: ConcurrentlyProtocol, Element.Value: Hashable {
+    var sequenced: Concurrently<Set<Element.Value>> {
+        traverse(\.concurrently)
     }
 }
 

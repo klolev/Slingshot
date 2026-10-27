@@ -44,9 +44,11 @@ public extension AsyncSequence {
     }
 }
 
-public extension Sequence {
+// The stream calls the iterator's `next()` from a nonisolated closure, so the conformance can't be actor-isolated
+public extension Sequence where Iterator: SendableMetatype {
     var asyncStream: AsyncStream<Element> {
-        var iterator = makeIterator()
+        // AsyncStream traps if more than one task iterates it, so this closure is never called concurrently
+        nonisolated(unsafe) var iterator = makeIterator()
         return AsyncStream {
             iterator.next()
         }

@@ -19,3 +19,14 @@ public extension Result where Element: IOProtocol, Element.Value: ResultProtocol
         }
     }
 }
+
+public extension Result where Element: ConcurrentlyProtocol, Element.Value: ResultProtocol, Element.Value.Success: Sendable, Element.Value.Failure == Failure {
+    var sequenced: Concurrently<Result<Element.Value.Success, Element.Value.Failure>> {
+        switch self {
+        case .success(let success):
+            success.concurrently.map(\.result)
+        case .failure(let failure):
+            .pure(.failure(failure))
+        }
+    }
+}

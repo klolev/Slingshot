@@ -1,7 +1,7 @@
 import Testing
 @testable import Slingshot
 
-private let upper: (Character) -> Character = { Character($0.uppercased()) }
+private func upper(_ c: Character) -> Character { Character(c.uppercased()) }
 
 @Suite("String Traversable")
 struct String_TraversableTest {

@@ -1,4 +1,4 @@
-// swift-tools-version:5.9
+// swift-tools-version:6.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -12,7 +12,8 @@ let package = Package(
             targets: ["Slingshot"]),
     ],
     targets: [
-        .target(name: "Slingshot"),
+        .target(name: "Slingshot",
+                exclude: ["CodeGeneration/Templates", "CodeGeneration/config.json"]),
         .plugin(name: "SlingshotPlugin", 
                 capability: .command(intent: .custom(verb: "generate-slingshot",
                                                      description: "generate code"),

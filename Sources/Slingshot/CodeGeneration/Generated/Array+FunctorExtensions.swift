@@ -4,7 +4,7 @@ public extension Array {
     }
     
     static func replace<C>(with x: C) -> (Array<Element>) -> Array<C> {
-        flip(Array<Element>.replace(with:))(x)
+        { items in items.replace(with: x) }
     }
     
     static func map<U>(_ transform: @escaping (Element) -> U) -> (Array<Element>) -> Array<U> {

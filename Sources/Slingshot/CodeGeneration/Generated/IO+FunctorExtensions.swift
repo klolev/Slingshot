@@ -4,7 +4,7 @@ public extension IO {
     }
     
     static func replace<C>(with x: C) -> (IO<Value>) -> IO<C> {
-        flip(IO<Value>.replace(with:))(x)
+        { items in items.replace(with: x) }
     }
     
     static func map<U>(_ transform: @escaping (Value) -> U) -> (IO<Value>) -> IO<U> {
