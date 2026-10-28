@@ -3,11 +3,6 @@ extension Array {
         public let first: Element
         let container: Array<Element>
         
-        enum CodingKeys: String, CodingKey {
-            case first
-            case container
-        }
-        
         public init(first: Element, container: Array<Element>) {
             self.first = first
             self.container = container
@@ -114,5 +109,24 @@ extension Array.NonEmpty {
 public extension Array.NonEmpty {
     func map<T>(_ transform: @escaping (Element) -> T) -> Array<T>.NonEmpty {
         .init(first: transform(first), container: container.map(transform))
+    }
+}
+
+
+extension Array.NonEmpty: Encodable where Element: Encodable {
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(self.container)
+    }
+}
+
+
+extension Array.NonEmpty: Decodable where Element: Decodable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        guard let nonEmpty = Self(container: try container.decode(Array<Element>.self)) else {
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Expected a non-empty Array")
+        }
+        self = nonEmpty
     }
 }

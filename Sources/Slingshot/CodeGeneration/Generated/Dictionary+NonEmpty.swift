@@ -3,11 +3,6 @@ extension Dictionary {
         public let first: (key: Key, value: Value)
         let container: Dictionary
         
-        enum CodingKeys: String, CodingKey {
-            case first
-            case container
-        }
-        
         public init(first: (key: Key, value: Value), container: Dictionary) {
             self.first = first
             self.container = container
@@ -86,5 +81,24 @@ extension Dictionary.NonEmpty: Semigroup {
 extension Dictionary.NonEmpty {
     public static func pure(_ x: (key: Key, value: Value)) -> Self {
         Self(first: x, container: .pure(x))
+    }
+}
+
+
+extension Dictionary.NonEmpty: Encodable where Key: Encodable, Value: Encodable {
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(self.container)
+    }
+}
+
+
+extension Dictionary.NonEmpty: Decodable where Key: Decodable, Value: Decodable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        guard let nonEmpty = Self(container: try container.decode(Dictionary.self)) else {
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Expected a non-empty Dictionary")
+        }
+        self = nonEmpty
     }
 }

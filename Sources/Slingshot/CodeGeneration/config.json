@@ -84,6 +84,14 @@
       {
          "name": "Functor",
          "properties": []
+      },
+      {
+         "name": "Encodable",
+         "properties": []
+      },
+      {
+         "name": "Decodable",
+         "properties": []
       }
    ],
    "structs": [
@@ -169,6 +177,14 @@
             },
             {
                "name": "Functor"
+            },
+            {
+               "name": "Encodable",
+               "where": "Element: Encodable"
+            },
+            {
+               "name": "Decodable",
+               "where": "Element: Decodable"
             }
          ]
       },
@@ -207,6 +223,14 @@
             },
             {
                "name": "Functor"
+            },
+            {
+               "name": "Encodable",
+               "where": "Element: Encodable"
+            },
+            {
+               "name": "Decodable",
+               "where": "Element: Decodable"
             }
          ]
       },
@@ -237,6 +261,14 @@
             },
             {
                "name": "Pure"
+            },
+            {
+               "name": "Encodable",
+               "where": "Key: Encodable, Value: Encodable"
+            },
+            {
+               "name": "Decodable",
+               "where": "Key: Decodable, Value: Decodable"
             }
          ]
       },
@@ -268,6 +300,12 @@
             },
             {
                "name": "Pure"
+            },
+            {
+               "name": "Encodable"
+            },
+            {
+               "name": "Decodable"
             }
          ]
       },

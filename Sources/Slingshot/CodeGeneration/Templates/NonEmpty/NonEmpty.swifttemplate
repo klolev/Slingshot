@@ -3,11 +3,6 @@ extension \(type) {
         public let first: \(item)
         let container: \(fullyQualifiedType)
         
-        enum CodingKeys: String, CodingKey {
-            case first
-            case container
-        }
-        
         public init(first: \(item), container: \(fullyQualifiedType)) {
             self.first = first
             self.container = container

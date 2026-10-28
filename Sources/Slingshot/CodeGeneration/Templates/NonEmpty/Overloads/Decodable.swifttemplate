@@ -1,0 +1,9 @@
+extension \(type).NonEmpty: Decodable\(whereClause) {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        guard let nonEmpty = Self(container: try container.decode(\(fullyQualifiedType).self)) else {
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Expected a non-empty \(type)")
+        }
+        self = nonEmpty
+    }
+}

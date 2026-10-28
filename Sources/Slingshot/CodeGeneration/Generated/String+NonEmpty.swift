@@ -3,11 +3,6 @@ extension String {
         public let first: Character
         let container: String
         
-        enum CodingKeys: String, CodingKey {
-            case first
-            case container
-        }
-        
         public init(first: Character, container: String) {
             self.first = first
             self.container = container
@@ -91,5 +86,24 @@ extension String.NonEmpty: Semigroup {
 extension String.NonEmpty {
     public static func pure(_ x: Character) -> Self {
         Self(first: x, container: .pure(x))
+    }
+}
+
+
+extension String.NonEmpty: Encodable {
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(self.container)
+    }
+}
+
+
+extension String.NonEmpty: Decodable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        guard let nonEmpty = Self(container: try container.decode(String.self)) else {
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Expected a non-empty String")
+        }
+        self = nonEmpty
     }
 }

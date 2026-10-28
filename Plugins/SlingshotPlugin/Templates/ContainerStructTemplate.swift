@@ -20,7 +20,8 @@ struct ContainerStructTemplate: Template {
                 
                 if let data = try? Data(contentsOf: overloadPath),
                    let overloadTemplate = String(data: data, encoding: .utf8) {
-                    return apply(template: overloadTemplate, with: args)
+                    let whereClause = conformance.where.map { " where \($0)" } ?? ""
+                    return apply(template: overloadTemplate, with: args.merging([#"\(whereClause)"#: whereClause]) { $1 })
                 }
                 
                 

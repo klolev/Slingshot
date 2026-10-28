@@ -3,11 +3,6 @@ extension Set {
         public let first: Element
         let container: Set<Element>
         
-        enum CodingKeys: String, CodingKey {
-            case first
-            case container
-        }
-        
         public init(first: Element, container: Set<Element>) {
             self.first = first
             self.container = container
@@ -104,5 +99,24 @@ extension Set.NonEmpty {
 public extension Set.NonEmpty {
     func map<T>(_ transform: @escaping (Element) -> T) -> Set<T>.NonEmpty {
         .init(first: transform(first), container: container.map(transform))
+    }
+}
+
+
+extension Set.NonEmpty: Encodable where Element: Encodable {
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(self.container)
+    }
+}
+
+
+extension Set.NonEmpty: Decodable where Element: Decodable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        guard let nonEmpty = Self(container: try container.decode(Set<Element>.self)) else {
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Expected a non-empty Set")
+        }
+        self = nonEmpty
     }
 }
