@@ -23,11 +23,11 @@ where Prefix: AsyncSequence, Tail: AsyncSequence, Prefix.Element == Tail.Element
             self.tail = tail.makeAsyncIterator()
         }
         
-        public mutating func next() async throws -> Tail.Element? {
-            if let prefixValue = try await prefix.next() {
+        public mutating func next(isolation actor: isolated (any Actor)?) async throws -> Tail.Element? {
+            if let prefixValue = try await prefix.next(isolation: actor) {
                 prefixValue
             } else {
-                try await tail.next()
+                try await tail.next(isolation: actor)
             }
         }
     }

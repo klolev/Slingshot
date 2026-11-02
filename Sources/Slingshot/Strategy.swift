@@ -81,9 +81,9 @@ public extension Strategy {
 
 extension Strategy {
     /// Adds `operation` to `group` with this strategy's task options, running it under `inner`.
-    func addTask<T: Sendable>(to group: inout TaskGroup<T>, _ operation: @escaping @Sendable () async -> T) {
+    func addTask<T: Sendable>(to group: inout TaskGroup<T>, _ operation: @escaping @Sendable @concurrent () async -> T) {
         let inner = inner
-        let child: @Sendable () async -> T = {
+        let child: @Sendable @concurrent () async -> T = {
             await Strategy.$current.withValue(inner) { await operation() }
         }
         if #available(macOS 26, iOS 26, tvOS 26, watchOS 26, visionOS 26, *) {

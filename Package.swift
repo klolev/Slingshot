@@ -19,11 +19,14 @@ let package = Package(
         .package(url: "https://github.com/swiftlang/swift-syntax", "602.0.0"..<"605.0.0"),
     ],
     targets: [
-        .target(name: "Slingshot",
-                dependencies: [
-                    .target(name: "SlingshotMacros", condition: .when(traits: ["Macros"])),
-                ],
-                exclude: ["CodeGeneration/Templates", "CodeGeneration/config.json"]),
+        .target(
+            name: "Slingshot",
+            dependencies: [
+                .target(name: "SlingshotMacros", condition: .when(traits: ["Macros"])),
+            ],
+            exclude: ["CodeGeneration/Templates", "CodeGeneration/config.json"],
+            swiftSettings: [.enableUpcomingFeature("NonisolatedNonsendingByDefault")]
+        ),
         .macro(name: "SlingshotMacros",
                dependencies: [
                    .product(name: "SwiftSyntax", package: "swift-syntax"),
