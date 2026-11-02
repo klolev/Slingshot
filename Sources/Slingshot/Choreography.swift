@@ -4,7 +4,7 @@
 import Foundation
 
 /// nodes in a distributed system, identified by a string
-public protocol Location {
+public protocol Location: Sendable {
     static var name: String { get }
 }
 
@@ -29,7 +29,7 @@ public protocol Choreographer {
     func locally<L: Location, V>(_: L.Type, _ body: (Unwrap<L>) async throws -> V) async throws -> At<L, V>
     
     /// communicates a value V at location S to location R
-    func comm<S: Location, R: Location, V: Codable>(_ v: At<S, V>, from: S.Type, to: R.Type) async throws -> At<R, V>
+    func comm<S: Location, R: Location, V: Codable>(_ v: At<S, V>, to: R.Type) async throws -> At<R, V>
     
     /// branches depending on value V at location L
     func cond<L: Location, V: Codable & CaseIterable, B>(_ v: At<L, V>, _ body: (V) async throws -> B) async throws -> B
@@ -64,7 +64,7 @@ public final class TracingChoreographer: Choreographer {
         return At(value: nil)
     }
 
-    public func comm<S, R, V: Codable>(_ v: At<S, V>, from: S.Type, to: R.Type) async throws -> At<R, V> {
+    public func comm<S, R, V: Codable>(_ v: At<S, V>, to: R.Type) async throws -> At<R, V> {
         events.append(.comm(from: S.name, to: R.name, type: "\(V.self)"))
         return At(value: nil)
     }
@@ -98,7 +98,7 @@ public struct StandardChoreographer: Sendable {
     }
 
     public func comm<S: Location, R: Location, V: Codable>(
-        _ v: At<S, V>, from _: S.Type, to _: R.Type) async throws -> At<R, V> {
+        _ v: At<S, V>, to _: R.Type) async throws -> At<R, V> {
         if me == S.name { try await net.send(try JSONEncoder().encode(v.value!), to: R.name) }
         if me == R.name { return At(value: try JSONDecoder().decode(V.self, from: try await net.receive(from: S.name))) }
         return At(value: nil)
