@@ -9,9 +9,11 @@ public protocol Location: Sendable {
 }
 
 /// a @ l represents a value of type a at location l. At any other location it’s empty.
-public struct At<L: Location, Value: Sendable>: Sendable {
-    fileprivate let value: Value?
+public struct At<L: Location, Value: ~Copyable>: ~Copyable {
+    fileprivate var value: Value?
 }
+extension At: Copyable where Value: Copyable {}
+extension At: Sendable where Value: Sendable & ~Copyable {}
 
 public struct Unwrap<L: Location> {
     fileprivate init() {}
@@ -26,7 +28,24 @@ public struct Unwrap<L: Location> {
 
 public protocol Choreographer {
     /// runs a local computation at one location L
-    func locally<L: Location, V>(_: L.Type, _ body: (Unwrap<L>) async throws -> V) async throws -> At<L, V>
+    func locally<L: Location, V: ~Copyable>(
+        _: L.Type,
+        _ body: (Unwrap<L>) async throws -> V
+    ) async throws -> At<L, V>
+    
+    /// consuming version of locally
+    func locally<L: Location, V: ~Copyable, R: ~Copyable>(
+        _: L.Type,
+        consuming input: consuming At<L, V>,
+        _ body: (Unwrap<L>, consuming V) async throws -> R
+    ) async throws -> At<L, R>
+
+    /// borrowing version of locally
+    func locally<L: Location, V: ~Copyable, R>(
+        _: L.Type,
+        borrowing input: borrowing At<L, V>,
+        _ body: (Unwrap<L>, borrowing V) async throws -> R
+    ) async throws -> At<L, R>
     
     /// communicates a value V at location S to location R
     func comm<S: Location, R: Location, V: Codable>(_ v: At<S, V>, to: R.Type) async throws -> At<R, V>
@@ -59,11 +78,31 @@ public final class TracingChoreographer: Choreographer {
     
     private(set) var events: [Trace] = []
 
-    public func locally<L, V>(_: L.Type, _ body: (Unwrap<L>) async throws -> V) async throws -> At<L, V> {
+    public func locally<L: Location, V: ~Copyable>(
+        _: L.Type,
+        _ body: (Unwrap<L>) async throws -> V
+    ) async throws -> At<L, V> {
+        events.append(.locally(L.name))
+        return At(value: nil)
+    }
+    
+    public func locally<L: Location, V: ~Copyable, R: ~Copyable>(
+        _: L.Type,
+        consuming input: consuming At<L, V>,
+        _ body: (Unwrap<L>, consuming V) async throws -> R
+    ) async throws -> At<L, R> {
         events.append(.locally(L.name))
         return At(value: nil)
     }
 
+    public func locally<L: Location, V: ~Copyable, R>(
+        _: L.Type,
+        borrowing input: borrowing At<L, V>,
+        _ body: (Unwrap<L>, borrowing V) async throws -> R
+    ) async throws -> At<L, R> {
+        events.append(.locally(L.name))
+        return At(value: nil)    }
+    
     public func comm<S, R, V: Codable>(_ v: At<S, V>, to: R.Type) async throws -> At<R, V> {
         events.append(.comm(from: S.name, to: R.name, type: "\(V.self)"))
         return At(value: nil)
