@@ -35,14 +35,12 @@ public protocol Choreographer {
     
     /// consuming version of locally
     func locally<L: Location, V: ~Copyable, R: ~Copyable>(
-        _: L.Type,
         consuming input: consuming At<L, V>,
         _ body: (Unwrap<L>, consuming V) async throws -> R
     ) async throws -> At<L, R>
 
     /// borrowing version of locally
     func locally<L: Location, V: ~Copyable, R>(
-        _: L.Type,
         borrowing input: borrowing At<L, V>,
         _ body: (Unwrap<L>, borrowing V) async throws -> R
     ) async throws -> At<L, R>
@@ -87,7 +85,6 @@ public final class TracingChoreographer: Choreographer {
     }
     
     public func locally<L: Location, V: ~Copyable, R: ~Copyable>(
-        _: L.Type,
         consuming input: consuming At<L, V>,
         _ body: (Unwrap<L>, consuming V) async throws -> R
     ) async throws -> At<L, R> {
@@ -96,7 +93,6 @@ public final class TracingChoreographer: Choreographer {
     }
 
     public func locally<L: Location, V: ~Copyable, R>(
-        _: L.Type,
         borrowing input: borrowing At<L, V>,
         _ body: (Unwrap<L>, borrowing V) async throws -> R
     ) async throws -> At<L, R> {
