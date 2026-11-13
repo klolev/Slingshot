@@ -9,11 +9,16 @@ public protocol Location: Sendable {
 }
 
 /// a @ l represents a value of type a at location l. At any other location it’s empty.
-public struct At<L: Location, Value: ~Copyable>: ~Copyable {
+public struct At<L: Location, Value> {
     fileprivate var value: Value?
+    
+    public static var absent: Self { .init() }
+    
+    public func take() -> Value {
+        value!
+    }
 }
-extension At: Copyable where Value: Copyable {}
-extension At: Sendable where Value: Sendable & ~Copyable {}
+extension At: Sendable where Value: Sendable {}
 
 public struct Unwrap<L: Location> {
     fileprivate init() {}
@@ -26,125 +31,95 @@ public struct Unwrap<L: Location> {
     }
 }
 
-public protocol Choreographer {
-    /// runs a local computation at one location L
-    func locally<L: Location, V: ~Copyable>(
-        _: L.Type,
-        _ body: (Unwrap<L>) async throws -> V
-    ) async throws -> At<L, V>
-    
-    /// consuming version of locally
-    func locally<L: Location, V: ~Copyable, R: ~Copyable>(
-        consuming input: consuming At<L, V>,
-        _ body: (Unwrap<L>, consuming V) async throws -> R
-    ) async throws -> At<L, R>
-
-    /// borrowing version of locally
-    func locally<L: Location, V: ~Copyable, R>(
-        borrowing input: borrowing At<L, V>,
-        _ body: (Unwrap<L>, borrowing V) async throws -> R
-    ) async throws -> At<L, R>
-    
-    /// communicates a value V at location S to location R
-    func comm<S: Location, R: Location, V: Codable>(_ v: At<S, V>, to: R.Type) async throws -> At<R, V>
-    
-    /// branches depending on value V at location L
-    func cond<L: Location, V: Codable & CaseIterable, B>(_ v: At<L, V>, _ body: (V) async throws -> B) async throws -> B
-}
-
-public final class TracingChoreographer: Choreographer {
-    public indirect enum Trace: Equatable {
-        case locally(String)
-        case comm(from: String, to: String, type: String)
-        case cond(at: String, cases: [(String, [Trace])])
+@EffectFamily
+public enum Choreography {
+    public protocol Interpreter {
+        /// runs a local computation at one location L
+        func locally<L: Location, ComputationOutput>(
+            _ type: L.Type,
+            _ body: @escaping (Unwrap<L>) async throws -> ComputationOutput
+        ) async throws -> At<L, ComputationOutput>
         
-        public static func == (lhs: Self, rhs: Self) -> Bool {
-            switch (lhs, rhs) {
-            case (.locally(let a), .locally(let b)):
-                a == b
-            case (.comm(let fromA, let toA, let typeA), .comm(from: let fromB, to: let toB, type: let typeB)):
-                fromA == fromB && toA == toB && typeA == typeB
-            case (.cond(let atA, let casesA), .cond(at: let atB, cases: let casesB)):
-                atA == atB && casesA.count == casesB.count && zip(casesA, casesB).allSatisfy { a, b in
-                    a.0 == b.0 && a.1 == b.1
-                }
-            default:
-                false
-            }
-        }
-    }
-    
-    private(set) var events: [Trace] = []
-
-    public func locally<L: Location, V: ~Copyable>(
-        _: L.Type,
-        _ body: (Unwrap<L>) async throws -> V
-    ) async throws -> At<L, V> {
-        events.append(.locally(L.name))
-        return At(value: nil)
-    }
-    
-    public func locally<L: Location, V: ~Copyable, R: ~Copyable>(
-        consuming input: consuming At<L, V>,
-        _ body: (Unwrap<L>, consuming V) async throws -> R
-    ) async throws -> At<L, R> {
-        events.append(.locally(L.name))
-        return At(value: nil)
-    }
-
-    public func locally<L: Location, V: ~Copyable, R>(
-        borrowing input: borrowing At<L, V>,
-        _ body: (Unwrap<L>, borrowing V) async throws -> R
-    ) async throws -> At<L, R> {
-        events.append(.locally(L.name))
-        return At(value: nil)    }
-    
-    public func comm<S, R, V: Codable>(_ v: At<S, V>, to: R.Type) async throws -> At<R, V> {
-        events.append(.comm(from: S.name, to: R.name, type: "\(V.self)"))
-        return At(value: nil)
-    }
-
-    public func cond<L, V: Codable & CaseIterable, B>(_ v: At<L, V>, _ body: (V) async throws -> B) async throws -> B {
-        var arms: [(String, [Trace])] = []
-        var last: B?
-        for choice in V.allCases {
-            let sub = TracingChoreographer()
-            last = try await body(choice)
-            arms.append(("\(choice)", sub.events))
-        }
-        events.append(.cond(at: L.name, cases: arms))
-        return last!
+        /// sends a value V at location S to location R
+        func send<Sender: Location, Receiver: Location, Value: Codable & Sendable>(
+            _ v: At<Sender, Value>,
+            to: Receiver.Type
+        ) async throws -> At<Receiver, Value>
+        
+        /// branches depending on value V at location L
+        func branch<L: Location, Value: Codable & Sendable, BranchOutput>(
+            _ v: At<L, Value>,
+            _ body: @escaping (Value) -> Freer<Choreography.Family, BranchOutput>
+        ) async throws -> BranchOutput
     }
 }
 
-public protocol ChoreographerNetwork: Sendable {
-    func send(_ data: Data, to: String) async throws
-    func receive(from: String) async throws -> Data
-    func broadcast(_ data: Data) async throws
+@EffectFamily
+public enum Networking {
+    public protocol Interpreter {
+        func send<V: Codable & Sendable>(_ value: V, to location: String) async throws
+        func receive<V: Codable & Sendable>(_ type: V.Type, from location: String) async throws -> V
+        func broadcast<V: Codable & Sendable>(_ value: V) async throws
+    }
 }
 
-public struct StandardChoreographer: Sendable {
-    public let me: String
-    let net: any ChoreographerNetwork
-
-    public func locally<L: Location, V>(_: L.Type, _ body: (Unwrap<L>) async throws -> V) async throws -> At<L, V> {
-        guard me == L.name else { return At(value: nil) }
-        return At(value: try await body(Unwrap()))
+@EffectFamily
+public enum Embedding {
+    public protocol Interpreter {
+        func run<V>(_ body: @escaping () async throws -> V) async throws -> V
     }
+}
 
-    public func comm<S: Location, R: Location, V: Codable>(
-        _ v: At<S, V>, to _: R.Type) async throws -> At<R, V> {
-        if me == S.name { try await net.send(try JSONEncoder().encode(v.value!), to: R.name) }
-        if me == R.name { return At(value: try JSONDecoder().decode(V.self, from: try await net.receive(from: S.name))) }
-        return At(value: nil)
+public struct Projector<Me: Location, Effs: Networking.Has & Embedding.Has>: Choreography.Translation {
+    public typealias Target = Effs
+    
+    public func locally<L, ComputationOutput>(
+        _ type: L.Type,
+        _ body: @escaping (Unwrap<L>) async throws -> ComputationOutput
+    ) -> Freer<Effs, At<L, ComputationOutput>> where L : Location {
+        guard Me.self == L.self else {
+            return .pure(.absent)
+        }
+        
+        return Embedding.run {
+            .init(value: try await body(.init()))
+        }
     }
-
-    /// Everyone learns L's choice, then follows the same branch
-    public func cond<L: Location, V: Codable, B>(
-        _ v: At<L, V>, _ body: (V) async throws -> B) async throws -> B {
-        let choice: V
-        if me == L.name { choice = v.value!; try await net.broadcast(try JSONEncoder().encode(choice)) }
-        else { choice = try JSONDecoder().decode(V.self, from: try await net.receive(from: L.name)) }
-        return try await body(choice)
+    
+    public func send<Sender, Receiver, Value>(
+        _ v: At<Sender, Value>,
+        to: Receiver.Type
+    ) -> Freer<Effs, At<Receiver, Value>> where Sender : Location, Receiver : Location, Value : Codable & Sendable {
+        if Sender.self == Receiver.self, Sender.self == Me.self {
+            return .pure(.init(value: v.take()))
+        }
+        
+        if Sender.self == Me.self {
+            return Networking.send(v.take(), to: Receiver.name)
+                .map(constant(.absent))
+        }
+        
+        if Receiver.self == Me.self {
+            return Networking.receive(Value.self, from: Sender.name)
+                .map(At.init(value:))
+        }
+        
+        return .pure(.absent)
+    }
+    
+    public func branch<L, Value, BranchOutput>(
+        _ v: At<L, Value>,
+        _ body: @escaping (Value) -> Freer<Choreography.Family, BranchOutput>
+    ) -> Freer<Effs, BranchOutput> where L : Location, Value: Codable & Sendable {
+        let broadcast: Freer<Effs, Value> = if Me.self == L.self {
+            Networking.broadcast(v.take())
+                .map(constant(v.take()))
+        } else {
+            Networking.receive(Value.self, from: L.name)
+        }
+        
+        return broadcast.flatMap {
+            Choreography.translate(body($0), with: self)
+        }
     }
 }

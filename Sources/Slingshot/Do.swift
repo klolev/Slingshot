@@ -16,8 +16,16 @@
 /// Keep plain statements free of side effects, like Haskell's `let`: effects belong in binds.
 /// Statements before the first bind run when the value is built, the rest when it runs,
 /// and statements between independent binds move after them.
+///
+/// Every bind in a block has the block's own type, so the block's type is inferred into each bind,
+/// the way `>>=` ties every statement of a Haskell `do` to one monad:
+///
+///     let config: Reader<Env, String> = #do { bind in
+///         let name = bind(Reader { $0.name })   // `$0` is an `Env`, taken from the block's type
+///         return "hello \(name)"
+///     }
 @freestanding(expression)
-public macro `do`<M: Bindable>(_ body: (Binder) -> M.Bound) -> M = #externalMacro(module: "SlingshotMacros", type: "DoMacro")
+public macro `do`<M: Bindable>(_ body: (Binder<M>) -> M.Bound) -> M = #externalMacro(module: "SlingshotMacros", type: "DoMacro")
 
 /// A type `#do` can bind: `Bound` is the value a bind produces.
 public protocol Bindable {
@@ -33,11 +41,19 @@ public func _doMonad<M: DoMonad>(_ m: M) -> M {
 }
 
 /// Passed to a `#do` block to mark its binds. It can't be created outside `#do`, so `bind` can't be misused elsewhere.
-public struct Binder {
+/// `M` is the block's type: a bind takes the same type with only the bound value free,
+/// like `>>=`'s `m a -> (a -> m b) -> m b`, so everything else comes from the block.
+public struct Binder<M> {
     init() {}
+}
 
-    /// Only for type checking: `#do` rewrites every call before the code runs.
-    public func callAsFunction<M: Bindable>(_ m: M) -> M.Bound {
+// The overloads that bind each type live in CodeGeneration/Generated/*+DoBinder.swift:
+// one per type, because "M with another bound value" needs higher-kinded types.
+public extension Binder {
+    /// Any other bind is a different type than its block: picked only when no generated overload fits,
+    /// so the error names the problem instead of listing every overload.
+    @available(*, unavailable, message: "bind takes a value of its #do block's own type; convert it to that type first")
+    func callAsFunction<N>(_ m: N) -> N {
         fatalError("bind only works inside #do")
     }
 }
@@ -74,10 +90,15 @@ extension Reader: Bindable {
     public typealias Bound = Result
 }
 
+extension Freer: Bindable {
+    public typealias Bound = A
+}
+
 extension Optional: DoMonad {}
 extension Array: DoMonad {}
 extension Result: DoMonad {}
 extension Either: DoMonad {}
 extension IO: DoMonad {}
 extension Reader: DoMonad {}
+extension Freer: DoMonad {}
 #endif

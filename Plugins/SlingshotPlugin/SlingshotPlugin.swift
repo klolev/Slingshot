@@ -44,6 +44,7 @@ struct SlingshotPlugin: CommandPlugin {
         .protocolExtension: ProtocolExtensionTemplate(),
         .traversable: TraversableTemplate(),
         .traversableNonEmpty: TraversableNonEmptyTemplate(),
-        .zipBuilder: ZipBuilderTemplate()
+        .zipBuilder: ZipBuilderTemplate(),
+        .doBinder: DoBinderTemplate()
     ]
 }

@@ -178,6 +178,49 @@ struct DoTest {
         }
     }
 
+    @Suite("block type")
+    struct BlockType {
+        @Test("a Reader bind takes its dependency type from the block")
+        func aReaderBindTakesItsDependencyTypeFromTheBlock() {
+            let reader: Reader<Int, Int> = #do { bind in
+                let a = bind(Reader { $0 + 1 })
+                let b = bind(Reader { $0 * a })
+                return a + b
+            }
+            #expect(reader.execute(with: 10) == 121)
+        }
+
+        @Test("a Result bind takes its failure type from the block")
+        func aResultBindTakesItsFailureTypeFromTheBlock() {
+            let result: Result<Int, TestError> = #do { bind in
+                let a = bind(Result.success(1))
+                let b = bind(Result.success(a + 1))
+                return a + b
+            }
+            #expect(result == .success(3))
+        }
+
+        @Test("an Either bind takes its left type from the block")
+        func anEitherBindTakesItsLeftTypeFromTheBlock() {
+            let result: Either<String, Int> = #do { bind in
+                let a = bind(Either.right(1))
+                let b = bind(Either.right(a + 1))
+                return a + b
+            }
+            #expect(result.right == 3)
+        }
+
+        @Test("a bind can change the bound type")
+        func aBindCanChangeTheBoundType() {
+            let result: Int? = #do { bind in
+                let text = bind(Optional("42"))
+                let number = bind(Int(text))
+                return number + 1
+            }
+            #expect(result == 43)
+        }
+    }
+
     @Suite("statements")
     struct Statements {
         @Test("plain statements, patterns and annotations are kept")

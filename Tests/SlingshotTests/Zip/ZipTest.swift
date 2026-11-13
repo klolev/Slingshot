@@ -119,7 +119,7 @@ struct ZipTest {
 }
 
 /// A non-Sendable record of what ran, in order.
-final class Log {
+fileprivate final class Log {
     private(set) var entries: [String] = []
 
     func record(_ entry: String) {

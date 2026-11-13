@@ -355,6 +355,20 @@
             "shortCircuits": true
          },
          "conformances": []
+      },
+      {
+         "name": "Reader",
+         "type": "generic",
+         "arguments": ["Dependency", "Result"],
+         "bound": "Result",
+         "conformances": []
+      },
+      {
+         "name": "Freer",
+         "type": "generic",
+         "arguments": ["Family", "A"],
+         "bound": "A",
+         "conformances": []
       }
    ],
    "templates": [
@@ -412,6 +426,21 @@
          "applyOn": [
             "Array",
             "Set"
+         ]
+      },
+      {
+         "name": "DoBinder",
+         "type": "doBinder",
+         "applyOn": [
+            "Optional",
+            "Array",
+            "Result",
+            "Either",
+            "Validation",
+            "IO",
+            "Concurrently",
+            "Reader",
+            "Freer"
          ]
       }
    ]

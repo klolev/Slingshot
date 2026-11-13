@@ -14,6 +14,7 @@ let package = Package(
     ],
     traits: [
         .trait(name: "Macros", description: "#do notation. Builds swift-syntax, so it's off by default."),
+        .default(enabledTraits: ["Macros"])
     ],
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-syntax", "602.0.0"..<"605.0.0"),
@@ -47,6 +48,7 @@ let package = Package(
                 .product(name: "SwiftSyntaxMacrosGenericTestSupport", package: "swift-syntax", condition: .when(traits: ["Macros"])),
                 .product(name: "SwiftSyntaxMacroExpansion", package: "swift-syntax", condition: .when(traits: ["Macros"])),
             ],
-            path: "Tests"),
+            path: "Tests",
+            swiftSettings: [.enableUpcomingFeature("NonisolatedNonsendingByDefault")])
     ]
 )
