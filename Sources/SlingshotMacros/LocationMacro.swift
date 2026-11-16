@@ -34,7 +34,14 @@ public struct LocationMacro: MemberMacro, ExtensionMacro {
             \(raw: access)typealias Local = Slingshot.Embedding.Family
             """,
         ]
-        return local + [
+        // Swift only checks Local against `EffectStack` once something uses the location: this checks it here
+        let check: [DeclSyntax] = !declaresLocal ? [] : [
+            """
+            /// Fails to compile unless `Local` is an effect stack: write `SomeFamily.Family` for a family on its own.
+            private typealias LocalIsAnEffectStack = Slingshot.EffectStackCheck<Local>
+            """,
+        ]
+        return local + check + [
             """
             /// As a set of one, \(raw: name) shares all of its local effects with itself.
             \(raw: access)typealias Shared = Local
@@ -150,7 +157,12 @@ public struct LocationsMacro: MemberMacro {
                 }
             """
         }.joined(separator: "\n")
-        let shared: [DeclSyntax] = declaresTypealias("Shared", in: set) ? [] : [
+        let shared: [DeclSyntax] = declaresTypealias("Shared", in: set) ? [
+            """
+            /// Fails to compile unless `Shared` is an effect stack: write `SomeFamily.Family` for a family on its own.
+            private typealias SharedIsAnEffectStack = Slingshot.EffectStackCheck<Shared>
+            """,
+        ] : [
             """
             /// \(raw: name)'s `parallel` bodies are pure: declare `typealias Shared = SomeStack` for shared effects.
             \(raw: access)typealias Shared = Slingshot.NoEffects

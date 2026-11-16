@@ -47,6 +47,11 @@ public extension Location {
     static var members: [any Location.Type] { [Self.self] }
 }
 
+/// Only compiles when `Stack` is an effect stack: `@Location` and `@Locations` name it with `Local` and `Shared`,
+/// so declaring one that isn't a stack fails right there instead of where the location is first used.
+/// A family is the stack `SomeFamily.Family`, not the `@EffectFamily` enum itself.
+public enum EffectStackCheck<Stack: EffectStack> {}
+
 /// What `@Location` generates as `Reader`: only `locally`, running at the location, makes one.
 public protocol LocationReader {
     /// Only for `locally` and `@Location`'s generated code: a reader made elsewhere could read values that aren't there
@@ -168,7 +173,7 @@ extension Quire: Sendable where Value: Sendable {}
 /// and `member(of:)`, the proof that a set contains it.
 ///
 ///     @Location enum Server {}
-@attached(member, names: named(name), named(Includes), named(Reader), named(member), named(subset), named(Local), named(Shared), named(lift))
+@attached(member, names: named(name), named(Includes), named(Reader), named(member), named(subset), named(Local), named(Shared), named(lift), named(LocalIsAnEffectStack))
 @attached(extension, conformances: Location)
 public macro Location() = #externalMacro(module: "SlingshotMacros", type: "LocationMacro")
 
@@ -177,7 +182,7 @@ public macro Location() = #externalMacro(module: "SlingshotMacros", type: "Locat
 ///     @Locations enum Peers: Initiator.Includes, Responder.Includes {}
 ///
 /// Declare `typealias Shared = SomeStack` inside it for effects every member's `parallel` body can use.
-@attached(member, names: named(members), named(subset), named(Shared), named(lift))
+@attached(member, names: named(members), named(subset), named(Shared), named(lift), named(SharedIsAnEffectStack))
 public macro Locations() = #externalMacro(module: "SlingshotMacros", type: "LocationsMacro")
 #endif
 
