@@ -4,7 +4,8 @@ public struct Injected<Stack: EffectStack, Member: EffectFamily, X>: Effect {
     public typealias Family = Stack
     public typealias Output = X
 
-    let effect: any Effect<Member, X>
+    /// The effect itself, for `@Effects`' `hoist` to inject it into another stack
+    public let effect: any Effect<Member, X>
     let path: KeyPath<Stack.Interpreter, Member.Interpreter>
 
     public init(_ effect: any Effect<Member, X>, at path: KeyPath<Stack.Interpreter, Member.Interpreter>) {
@@ -42,6 +43,8 @@ public macro EffectFamily() = #externalMacro(module: "SlingshotMacros", type: "E
 ///
 ///     let token: Freer<App, Data?> = Keychain.load("token")
 ///     try await token.run(with: App.Interpreter(keychain: SystemKeychain(), log: OSLogger()))
-@attached(member, names: named(Interpreter), named(inject))
+///
+/// It also generates `hoist(_:into:)`, which moves an `App` program into any stack that has all of App's families.
+@attached(member, names: named(Interpreter), named(inject), named(hoist), named(Hoisting))
 public macro Effects() = #externalMacro(module: "SlingshotMacros", type: "EffectsMacro")
 #endif

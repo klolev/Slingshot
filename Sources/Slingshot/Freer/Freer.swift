@@ -6,8 +6,26 @@ public protocol EffectFamily {
 }
 
 /// A set of effect families a program can run in.
-/// Only the types `@EffectFamily` and `@Effects` generate conform to it: don't conform to it by hand.
+/// Only the types `@EffectFamily` and `@Effects` generate, and `NoEffects`, conform to it: don't conform to it by hand.
 public protocol EffectStack: EffectFamily {}
+
+/// The stack with no families: its programs are pure, so `hoist` moves them into any stack.
+public enum NoEffects: EffectStack {
+    public typealias Interpreter = Void
+
+    public static func hoist<Target: EffectStack, V>(_ program: Freer<NoEffects, V>, into target: Target.Type) -> Freer<Target, V> {
+        program.translate(Hoisting<Target>())
+    }
+
+    struct Hoisting<Target: EffectStack>: Translation {
+        typealias From = NoEffects
+        typealias To = Target
+
+        func translate<X>(_ effect: any Effect<NoEffects, X>) -> Freer<Target, X> {
+            preconditionFailure("\(type(of: effect)) claims NoEffects as its family, which has no effects")
+        }
+    }
+}
 
 /// One operation of a family, which its interpreter performs.
 public protocol Effect<Family, Output> {

@@ -3,15 +3,38 @@ import Foundation
 import Testing
 @testable import Slingshot
 
-@Location enum Alice {}
-@Location enum Bob {}
+/// Bob's own effect: only his local code can ask for a word
+@EffectFamily
+enum Words {
+    protocol Interpreter {
+        func word() async throws -> String
+    }
+}
+
+@Effects
+enum AliceLocal: Words.Has, Embedding.Has {}
+
+@Effects
+enum BobLocal: Words.Has {}
+
+@Location enum Alice {
+    typealias Local = AliceLocal
+}
+@Location enum Bob {
+    typealias Local = BobLocal
+}
 @Location enum Carol {}
 
 @Locations enum Pair: Alice.Includes, Bob.Includes {}
 @Locations enum Everyone: Alice.Includes, Bob.Includes, Carol.Includes {}
 
+/// Both Alice's and Bob's local stacks have Words, so a set of them can share it
 @Effects
-enum Node: Networking.Has, Embedding.Has {}
+enum SpeakerShared: Words.Has {}
+
+@Locations enum Speakers: Alice.Includes, Bob.Includes {
+    typealias Shared = SpeakerShared
+}
 
 /// Mailboxes keyed by sender and receiver, so each receive gets the next message on its own channel
 actor Hub {
@@ -69,29 +92,41 @@ struct Direct: Embedding.Interpreter {
     }
 }
 
-/// Alice and Bob each make a word, share it with the pair, and both build the same greeting from the two
+struct FixedWord: Words.Interpreter {
+    let value: String
+
+    func word() async throws -> String {
+        value
+    }
+}
+
+// computed, so the tests don't share a global of a non-Sendable type
+var aliceLocal: AliceLocal.Interpreter { .init(words: FixedWord(value: "hi"), embedding: Direct()) }
+var bobLocal: BobLocal.Interpreter { .init(words: FixedWord(value: "there")) }
+
+/// Alice and Bob each make a word (Bob asks his own Words effect for his), share it with the pair, and both build the same greeting from the two
 func greeting<Effs: Choreography.Has>() -> Freer<Effs, At<Pair, String>> {
     #do { bind in
-        let hello = bind(Choreography.locally(Alice.self) { _ in "hello" })
-        let world = bind(Choreography.locally(Bob.self) { _ in "world" })
+        let hello = bind(Choreography.locally(Alice.self) { _ in .pure("hello") })
+        let world = bind(Choreography.locally(Bob.self) { _ in Words.word() })
         let sharedHello = bind(Choreography.send(hello, to: Pair.self))
         let sharedWorld = bind(Choreography.send(world, to: Pair.self))
         return bind(Choreography.congruently(Pair.self) { pair in "\(pair(sharedHello)) \(pair(sharedWorld))" })
     }
 }
 
-func runGreeting<Me: Location>(as me: Me.Type, everyone: [String], hub: Hub) async throws -> At<Pair, String> {
+func runGreeting<Me: Location>(as me: Me.Type, local: Me.Local.Interpreter, everyone: [String], hub: Hub) async throws -> At<Pair, String> {
     let choreography: Freer<Choreography.Family, At<Pair, String>> = greeting()
-    let projected = Choreography.translate(choreography, with: Projector<Me, Node>())
+    let projected = Choreography.translate(choreography, with: Projector<Me>())
     let network = InMemoryNetwork(me: Me.name, everyone: everyone, hub: hub)
-    return try await projected.run(with: Node.Interpreter(networking: network, embedding: Direct()))
+    return try await projected.run(with: Choreography.Node<Me.Local>.Interpreter(local: local, networking: network))
 }
 
 /// Alice decides, shares the decision with the pair only, and the pair branches on it in a conclave:
 /// Carol takes part in the choreography but never hears about the decision
 func agreement() -> Freer<Choreography.Within<Everyone>, At<Pair, String>> {
     #do { bind in
-        let wantsHello = bind(Choreography.locally(Alice.self) { _ in true })
+        let wantsHello = bind(Choreography.locally(Alice.self) { _ in .pure(true) })
         let shared = bind(Choreography.send(wantsHello, to: Pair.self))
         return bind(Choreography.conclave(Pair.self, Pair.subset(of: Everyone.self)) {
             #do { bind in
@@ -102,17 +137,16 @@ func agreement() -> Freer<Choreography.Within<Everyone>, At<Pair, String>> {
     }
 }
 
-func runAgreement<Me: Location>(as proof: Member<Me, Everyone>, hub: Hub) async throws -> At<Pair, String> {
-    let projected = Choreography.project(agreement(), as: proof, into: Node.self)
+func runAgreement<Me: Location>(as proof: Member<Me, Everyone>, local: Me.Local.Interpreter, hub: Hub) async throws -> At<Pair, String> {
+    let projected = Choreography.project(agreement(), as: proof)
     let network = InMemoryNetwork(me: Me.name, everyone: Everyone.members.map { $0.name }, hub: hub)
-    return try await projected.run(with: Node.Interpreter(networking: network, embedding: Direct()))
+    return try await projected.run(with: Choreography.Node<Me.Local>.Interpreter(local: local, networking: network))
 }
 
-/// Each member of the pair makes its own word, they all get every word, and both build the same sentence:
-/// the symmetric half of a protocol written once, like the peers' nonces in Hola
+/// Each member of the pair makes its own word, they all get every word, and both build the same sentence
 func exchange() -> Freer<Choreography.Within<Everyone>, At<Pair, String>> {
     #do { bind in
-        let words = bind(Choreography.parallel(Pair.self) { facet in facet.location.name.uppercased() })
+        let words = bind(Choreography.parallel(Pair.self) { facet in .pure(facet.location.name.uppercased()) })
         let everyWord = bind(Choreography.fanIn(words, to: Pair.self))
         return bind(Choreography.congruently(Pair.self) { pair in
             let quire = pair(everyWord)
@@ -121,10 +155,25 @@ func exchange() -> Freer<Choreography.Within<Everyone>, At<Pair, String>> {
     }
 }
 
-func runExchange<Me: Location>(as proof: Member<Me, Everyone>, hub: Hub) async throws -> At<Pair, String> {
-    let projected = Choreography.project(exchange(), as: proof, into: Node.self)
+func runExchange<Me: Location>(as proof: Member<Me, Everyone>, local: Me.Local.Interpreter, hub: Hub) async throws -> At<Pair, String> {
+    let projected = Choreography.project(exchange(), as: proof)
     let network = InMemoryNetwork(me: Me.name, everyone: Everyone.members.map { $0.name }, hub: hub)
-    return try await projected.run(with: Node.Interpreter(networking: network, embedding: Direct()))
+    return try await projected.run(with: Choreography.Node<Me.Local>.Interpreter(local: local, networking: network))
+}
+
+/// Each speaker asks Words for a word, through its own interpreter, and both build the same line from them
+func chorus() -> Freer<Choreography.Within<Everyone>, At<Speakers, String>> {
+    #do { bind in
+        let words = bind(Choreography.parallel(Speakers.self) { _ in Words.word() })
+        let everyWord = bind(Choreography.fanIn(words, to: Speakers.self))
+        return bind(Choreography.congruently(Speakers.self) { speakers in speakers(everyWord).all.joined(separator: " ") })
+    }
+}
+
+func runChorus<Me: Location>(as proof: Member<Me, Everyone>, local: Me.Local.Interpreter, hub: Hub) async throws -> At<Speakers, String> {
+    let projected = Choreography.project(chorus(), as: proof)
+    let network = InMemoryNetwork(me: Me.name, everyone: Everyone.members.map { $0.name }, hub: hub)
+    return try await projected.run(with: Choreography.Node<Me.Local>.Interpreter(local: local, networking: network))
 }
 
 @Suite("choreography")
@@ -139,9 +188,9 @@ struct ChoreographyTest {
     func aValueSentToASetIsHeldByAllOfIt() async throws {
         let hub = Hub()
         let everyone = [Alice.name, Bob.name, Carol.name]
-        async let alice = runGreeting(as: Alice.self, everyone: everyone, hub: hub)
-        async let bob = runGreeting(as: Bob.self, everyone: everyone, hub: hub)
-        async let carol = runGreeting(as: Carol.self, everyone: everyone, hub: hub)
+        async let alice = runGreeting(as: Alice.self, local: aliceLocal, everyone: everyone, hub: hub)
+        async let bob = runGreeting(as: Bob.self, local: BobLocal.Interpreter(words: FixedWord(value: "world")), everyone: everyone, hub: hub)
+        async let carol = runGreeting(as: Carol.self, local: Direct(), everyone: everyone, hub: hub)
 
         let (atAlice, atBob, atCarol) = try await (alice, bob, carol)
         #expect(atAlice.take() == "hello world")
@@ -153,9 +202,9 @@ struct ChoreographyTest {
     @Test("a conclave branches on a value its members hold, without telling anyone else")
     func aConclaveBranchesWithoutTellingAnyoneElse() async throws {
         let hub = Hub()
-        async let alice = runAgreement(as: Alice.member(of: Everyone.self), hub: hub)
-        async let bob = runAgreement(as: Bob.member(of: Everyone.self), hub: hub)
-        async let carol = runAgreement(as: Carol.member(of: Everyone.self), hub: hub)
+        async let alice = runAgreement(as: Alice.member(of: Everyone.self), local: aliceLocal, hub: hub)
+        async let bob = runAgreement(as: Bob.member(of: Everyone.self), local: bobLocal, hub: hub)
+        async let carol = runAgreement(as: Carol.member(of: Everyone.self), local: Direct(), hub: hub)
 
         let (atAlice, atBob, atCarol) = try await (alice, bob, carol)
         #expect(atAlice.take() == "hello")
@@ -168,15 +217,41 @@ struct ChoreographyTest {
     @Test("parallel makes a facet per member, and fanIn gathers them at every receiver")
     func parallelAndFanIn() async throws {
         let hub = Hub()
-        async let alice = runExchange(as: Alice.member(of: Everyone.self), hub: hub)
-        async let bob = runExchange(as: Bob.member(of: Everyone.self), hub: hub)
-        async let carol = runExchange(as: Carol.member(of: Everyone.self), hub: hub)
+        async let alice = runExchange(as: Alice.member(of: Everyone.self), local: aliceLocal, hub: hub)
+        async let bob = runExchange(as: Bob.member(of: Everyone.self), local: bobLocal, hub: hub)
+        async let carol = runExchange(as: Carol.member(of: Everyone.self), local: Direct(), hub: hub)
 
         let (atAlice, atBob, atCarol) = try await (alice, bob, carol)
         #expect(atAlice.take() == "ALICE+BOB")
         #expect(atBob.take() == "ALICE+BOB")
         #expect(!atCarol.isHeld)
         #expect(await hub.undelivered() == 0)
+    }
+
+    @Test("a set's shared effects run at each member, with its own local interpreter")
+    func aSetsSharedEffectsRunAtEachMember() async throws {
+        let hub = Hub()
+        async let alice = runChorus(as: Alice.member(of: Everyone.self), local: aliceLocal, hub: hub)
+        async let bob = runChorus(as: Bob.member(of: Everyone.self), local: bobLocal, hub: hub)
+        async let carol = runChorus(as: Carol.member(of: Everyone.self), local: Direct(), hub: hub)
+
+        let (atAlice, atBob, atCarol) = try await (alice, bob, carol)
+        #expect(atAlice.take() == "hi there")
+        #expect(atBob.take() == "hi there")
+        #expect(!atCarol.isHeld)
+        #expect(await hub.undelivered() == 0)
+    }
+
+    @Test("a family's program hoists into any stack that has it")
+    func aFamilysProgramHoists() async throws {
+        let word: Freer<Words.Family, String> = Words.word()
+        #expect(try await Words.Family.hoist(word, into: AliceLocal.self).run(with: aliceLocal) == "hi")
+    }
+
+    @Test("a stack's program hoists into any stack that has all its families")
+    func aStacksProgramHoists() async throws {
+        let word: Freer<SpeakerShared, String> = Words.word()
+        #expect(try await SpeakerShared.hoist(word, into: BobLocal.self).run(with: bobLocal) == "there")
     }
 
     @Test("a location's reader reads its own facet")

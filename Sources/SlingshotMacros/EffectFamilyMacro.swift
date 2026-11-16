@@ -122,6 +122,20 @@ public struct EffectFamilyMacro: MemberMacro {
             \(raw: access)static func inject<X>(_ effect: any Slingshot.Effect<Family, X>) -> any Slingshot.Effect<Family, X> {
                 effect
             }
+
+            /// Moves a program of \(raw: name) alone into any stack that has \(raw: name).
+            \(raw: access)static func hoist<Target: Has, V>(_ program: Slingshot.Freer<Family, V>, into target: Target.Type) -> Slingshot.Freer<Target, V> {
+                program.translate(Hoisting<Target>())
+            }
+
+            \(raw: access)struct Hoisting<Target: Has>: Slingshot.Translation {
+                \(raw: access)typealias From = Family
+                \(raw: access)typealias To = Target
+
+                \(raw: access)func translate<X>(_ effect: any Slingshot.Effect<Family, X>) -> Slingshot.Freer<Target, X> {
+                    .perform(Target.inject(effect))
+                }
+            }
         }
         """
         return [operationsDecl, operationProtocol] + constructors + [has, familyDecl, translation, translator, translate]

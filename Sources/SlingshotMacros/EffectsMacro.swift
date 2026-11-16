@@ -63,6 +63,32 @@ public struct EffectsMacro: MemberMacro {
             }
             """
         }
-        return [interpreter] + injections
+        let constraint = members.map { "\($0.family).Has" }.joined(separator: " & ")
+        let reinjections = members.map { member in
+            """
+                    if let injected = effect as? Slingshot.Injected<\(name), \(member.family).Family, X> {
+                        return .perform(Target.inject(injected.effect))
+                    }
+            """
+        }.joined(separator: "\n")
+        let hoist: DeclSyntax = """
+        /// Moves a program of \(raw: name) into any stack that has all of its families.
+        \(raw: access)static func hoist<Target: \(raw: constraint), V>(_ program: Slingshot.Freer<\(raw: name), V>, into target: Target.Type) -> Slingshot.Freer<Target, V> {
+            program.translate(Hoisting<Target>())
+        }
+        """
+        let hoisting: DeclSyntax = """
+        /// Each of \(raw: name)'s effects, injected into `Target` instead: \(raw: name)'s effects are all made by its `inject`.
+        \(raw: access)struct Hoisting<Target: \(raw: constraint)>: Slingshot.Translation {
+            \(raw: access)typealias From = \(raw: name)
+            \(raw: access)typealias To = Target
+
+            \(raw: access)func translate<X>(_ effect: any Slingshot.Effect<\(raw: name), X>) -> Slingshot.Freer<Target, X> {
+        \(raw: reinjections)
+                preconditionFailure("\\(type(of: effect)) is an effect of \(raw: name) that its inject didn't make")
+            }
+        }
+        """
+        return [interpreter] + injections + [hoist, hoisting]
     }
 }

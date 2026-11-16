@@ -26,8 +26,26 @@ public struct LocationMacro: MemberMacro, ExtensionMacro {
         let name = location.name.text
         let access = accessModifier(of: location)
         let wireName = name.prefix(1).lowercased() + name.dropFirst()
+        let declaresLocal = declaresTypealias("Local", in: location)
 
-        return [
+        let local: [DeclSyntax] = declaresLocal ? [] : [
+            """
+            /// \(raw: name)'s local code is plain async code: declare `typealias Local = SomeStack` for other effects.
+            \(raw: access)typealias Local = Slingshot.Embedding.Family
+            """,
+        ]
+        return local + [
+            """
+            /// As a set of one, \(raw: name) shares all of its local effects with itself.
+            \(raw: access)typealias Shared = Local
+            """,
+            """
+            /// \(raw: name)'s shared program is its own local program: the only member is \(raw: name) itself.
+            \(raw: access)static func lift<L: Slingshot.Location, V>(_ program: Slingshot.Freer<Shared, V>, at member: Slingshot.Member<L, \(raw: name)>) -> Slingshot.Freer<L.Local, V> {
+                // the proof says L is in the set of just \(raw: name), so L is \(raw: name)
+                program as! Slingshot.Freer<L.Local, V>
+            }
+            """,
             """
             /// How other nodes address \(raw: name).
             \(raw: access)static let name = "\(raw: wireName)"
@@ -124,7 +142,29 @@ public struct LocationsMacro: MemberMacro {
         let access = accessModifier(of: set)
         let name = set.name.text
         let containers = members.map { "\($0).Includes" }.joined(separator: " & ")
-        return [
+        // Hoisting into each member's Local is what checks that every member has the shared families
+        let lifts = members.map { member in
+            """
+                if L.self == \(member).self {
+                    return Shared.hoist(program, into: \(member).Local.self) as! Slingshot.Freer<L.Local, V>
+                }
+            """
+        }.joined(separator: "\n")
+        let shared: [DeclSyntax] = declaresTypealias("Shared", in: set) ? [] : [
+            """
+            /// \(raw: name)'s `parallel` bodies are pure: declare `typealias Shared = SomeStack` for shared effects.
+            \(raw: access)typealias Shared = Slingshot.NoEffects
+            """,
+        ]
+        return shared + [
+            """
+            /// A program in \(raw: name)'s shared effects, as the local program of the member running it.
+            /// Only compiles when each member's `Local` has all of `Shared`'s families.
+            \(raw: access)static func lift<L: Slingshot.Location, V>(_ program: Slingshot.Freer<Shared, V>, at member: Slingshot.Member<L, \(raw: name)>) -> Slingshot.Freer<L.Local, V> {
+            \(raw: lifts)
+                preconditionFailure("\\(L.self) has a proof of membership in \(raw: name) without being one of its members")
+            }
+            """,
             """
             /// The locations in the set, for projection to send to each of them.
             \(raw: access)static let members: [any Slingshot.Location.Type] = [\(raw: members.map { "\($0).self" }.joined(separator: ", "))]
@@ -136,5 +176,12 @@ public struct LocationsMacro: MemberMacro {
             }
             """,
         ]
+    }
+}
+
+/// Whether the enum declares a typealias with this name itself, which the macros then don't generate
+private func declaresTypealias(_ name: String, in declaration: EnumDeclSyntax) -> Bool {
+    declaration.memberBlock.members.contains { member in
+        member.decl.as(TypeAliasDeclSyntax.self)?.name.text == name
     }
 }
