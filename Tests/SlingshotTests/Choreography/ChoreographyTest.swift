@@ -254,6 +254,21 @@ struct ChoreographyTest {
         #expect(try await SpeakerShared.hoist(word, into: BobLocal.self).run(with: bobLocal) == "there")
     }
 
+    @Test("faceted makes each member's own value its facet")
+    func facetedMakesEachMembersValueItsFacet() {
+        // as projected at Alice: she holds her value, not Bob's
+        let atAlice = Pair.faceted(alice: At<Alice, String>(value: "a"), bob: .absent)
+        #expect(Alice.Reader(_unchecked: ())(atAlice) == "a")
+
+        // as projected at Bob
+        let atBob = Pair.faceted(alice: .absent, bob: At<Bob, String>(value: "b"))
+        #expect(Bob.Reader(_unchecked: ())(atBob) == "b")
+
+        // as projected at Carol, who isn't in the pair
+        let atCarol = Pair.faceted(alice: At<Alice, String>.absent, bob: .absent)
+        #expect(!atCarol.isHeld)
+    }
+
     @Test("a location's reader reads its own facet")
     func aLocationsReaderReadsItsOwnFacet() {
         let facets: Faceted<Pair, String> = .init(value: "mine")

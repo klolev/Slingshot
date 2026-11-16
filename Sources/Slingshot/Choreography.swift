@@ -131,6 +131,19 @@ public struct Faceted<S: LocationSet, Value> {
     public func take() -> Value {
         value!
     }
+
+    /// Only for `@Locations`' `faceted(…)`, which passes one value per member of `S`: each location's facet is
+    /// the one value it holds. Passed anything else, it claims facets the compiler hasn't checked.
+    public init<each L: Location>(_unchecked pieces: repeat At<each L, Value>) {
+        var held: Value? = nil
+        for piece in repeat each pieces {
+            // the locations are all different, so a node holds at most one of them
+            if let value = piece.value {
+                held = value
+            }
+        }
+        self.init(value: held)
+    }
 }
 extension Faceted: Sendable where Value: Sendable {}
 
@@ -182,7 +195,11 @@ public macro Location() = #externalMacro(module: "SlingshotMacros", type: "Locat
 ///     @Locations enum Peers: Initiator.Includes, Responder.Includes {}
 ///
 /// Declare `typealias Shared = SomeStack` inside it for effects every member's `parallel` body can use.
-@attached(member, names: named(members), named(subset), named(Shared), named(lift), named(SharedIsAnEffectStack))
+///
+/// It also generates `faceted(…)`, one labelled value per member, which makes them the set's facets without communicating:
+///
+///     let ids: Faceted<Peers, SessionID> = Peers.faceted(initiator: fromCreated, responder: fromJoined)
+@attached(member, names: named(members), named(subset), named(Shared), named(lift), named(SharedIsAnEffectStack), named(faceted))
 public macro Locations() = #externalMacro(module: "SlingshotMacros", type: "LocationsMacro")
 #endif
 

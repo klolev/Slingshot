@@ -148,6 +148,16 @@ public struct LocationsMacro: MemberMacro {
 
         let access = accessModifier(of: set)
         let name = set.name.text
+        let labels = members.map { member in
+            let last = member.split(separator: ".").last.map(String.init) ?? member
+            return last.prefix(1).lowercased() + last.dropFirst()
+        }
+        var seenLabels: Set<String> = []
+        for (member, label) in zip(members, labels) where !seenLabels.insert(label).inserted {
+            throw effectError("\(member) would have the same label as another member in faceted(\(label):): rename one of them", at: set.name)
+        }
+        let facetedParameters = zip(members, labels).map { "\($1): Slingshot.At<\($0), V>" }.joined(separator: ", ")
+        let facetedArguments = labels.joined(separator: ", ")
         let containers = members.map { "\($0).Includes" }.joined(separator: " & ")
         // Hoisting into each member's Local is what checks that every member has the shared families
         let lifts = members.map { member in
@@ -169,6 +179,13 @@ public struct LocationsMacro: MemberMacro {
             """,
         ]
         return shared + [
+            """
+            /// One value per member, as \(raw: name)'s facets: each member's facet is its own value. Nothing is sent,
+            /// and nothing says the values are equal.
+            \(raw: access)static func faceted<V>(\(raw: facetedParameters)) -> Slingshot.Faceted<\(raw: name), V> {
+                Slingshot.Faceted(_unchecked: \(raw: facetedArguments))
+            }
+            """,
             """
             /// A program in \(raw: name)'s shared effects, as the local program of the member running it.
             /// Only compiles when each member's `Local` has all of `Shared`'s families.
