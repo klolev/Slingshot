@@ -158,6 +158,14 @@ public struct LocationsMacro: MemberMacro {
         }
         let facetedParameters = zip(members, labels).map { "\($1): Slingshot.At<\($0), V>" }.joined(separator: ", ")
         let facetedArguments = labels.joined(separator: ", ")
+        let constantParameters = labels.map { "\($0): V" }.joined(separator: ", ")
+        // each constant becomes a value at its member, then they're faceted like held values
+        let heldArguments = labels.map { "\($0): \($0)Held" }.joined(separator: ", ")
+        let constantsProgram = Array(zip(zip(members, labels), members.indices)).reversed().reduce("\(name).faceted(\(heldArguments))") { inner, element in
+            let ((member, label), index) = element
+            let combinator = index == members.count - 1 ? "map" : "flatMap"
+            return "Slingshot.Choreography.locally(\(member).self, constant: \(label)).\(combinator) { \(label)Held in \(inner) }"
+        }
         let containers = members.map { "\($0).Includes" }.joined(separator: " & ")
         // Hoisting into each member's Local is what checks that every member has the shared families
         let lifts = members.map { member in
@@ -184,6 +192,12 @@ public struct LocationsMacro: MemberMacro {
             /// and nothing says the values are equal.
             \(raw: access)static func faceted<V>(\(raw: facetedParameters)) -> Slingshot.Faceted<\(raw: name), V> {
                 Slingshot.Faceted(_unchecked: \(raw: facetedArguments))
+            }
+            """,
+            """
+            /// One constant per member, as \(raw: name)'s facets: each member makes its own constant locally.
+            \(raw: access)static func faceted<Effs: Slingshot.Choreography.Has, V>(\(raw: constantParameters)) -> Slingshot.Freer<Effs, Slingshot.Faceted<\(raw: name), V>> {
+                \(raw: constantsProgram)
             }
             """,
             """

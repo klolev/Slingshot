@@ -196,9 +196,11 @@ public macro Location() = #externalMacro(module: "SlingshotMacros", type: "Locat
 ///
 /// Declare `typealias Shared = SomeStack` inside it for effects every member's `parallel` body can use.
 ///
-/// It also generates `faceted(…)`, one labelled value per member, which makes them the set's facets without communicating:
+/// It also generates `faceted(…)`, one labelled value per member, which makes them the set's facets without communicating,
+/// from values each member holds, or from constants as a choreography step:
 ///
 ///     let ids: Faceted<Peers, SessionID> = Peers.faceted(initiator: fromCreated, responder: fromJoined)
+///     let roles = bind(Peers.faceted(initiator: Role.initiator, responder: .responder))
 @attached(member, names: named(members), named(subset), named(Shared), named(lift), named(SharedIsAnEffectStack), named(faceted))
 public macro Locations() = #externalMacro(module: "SlingshotMacros", type: "LocationsMacro")
 #endif
@@ -446,6 +448,11 @@ public extension Choreography {
         public func accept(_ interpreter: any Choreography.Interpreter) async throws -> X {
             try await effect.accept(interpreter)
         }
+    }
+
+    /// A constant at one location: it's written in the choreography, so making it takes no communication
+    static func locally<Effs: Has, L: Location, V>(_ location: L.Type, constant: V) -> Freer<Effs, At<L, V>> {
+        locally(location) { _ in .pure(constant) }
     }
 
     /// A value held by the whole census, as a plain value: every participant gets the same one,

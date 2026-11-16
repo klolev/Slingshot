@@ -269,6 +269,20 @@ struct ChoreographyTest {
         #expect(!atCarol.isHeld)
     }
 
+    @Test("faceted makes each member's constant its facet")
+    func facetedMakesEachMembersConstantItsFacet() async throws {
+        let roles: Freer<Choreography.Family, Faceted<Pair, String>> = Pair.faceted(alice: "first", bob: "second")
+        let hub = Hub()
+
+        let atAlice = try await Choreography.translate(roles, with: Projector<Alice>())
+            .run(with: .init(local: aliceLocal, networking: InMemoryNetwork(me: Alice.name, everyone: [], hub: hub)))
+        #expect(Alice.Reader(_unchecked: ())(atAlice) == "first")
+
+        let atBob = try await Choreography.translate(roles, with: Projector<Bob>())
+            .run(with: .init(local: bobLocal, networking: InMemoryNetwork(me: Bob.name, everyone: [], hub: hub)))
+        #expect(Bob.Reader(_unchecked: ())(atBob) == "second")
+    }
+
     @Test("a location's reader reads its own facet")
     func aLocationsReaderReadsItsOwnFacet() {
         let facets: Faceted<Pair, String> = .init(value: "mine")
