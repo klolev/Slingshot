@@ -164,7 +164,7 @@ public struct LocationsMacro: MemberMacro {
         let constantsProgram = Array(zip(zip(members, labels), members.indices)).reversed().reduce("\(name).faceted(\(heldArguments))") { inner, element in
             let ((member, label), index) = element
             let combinator = index == members.count - 1 ? "map" : "flatMap"
-            return "Slingshot.Choreography.locally(\(member).self, constant: \(label)).\(combinator) { \(label)Held in \(inner) }"
+            return "Slingshot.Choreography.constant(\(label), at: \(member).self).\(combinator) { \(label)Held in \(inner) }"
         }
         let containers = members.map { "\($0).Includes" }.joined(separator: " & ")
         // Hoisting into each member's Local is what checks that every member has the shared families

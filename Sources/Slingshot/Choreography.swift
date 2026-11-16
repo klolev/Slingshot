@@ -450,9 +450,10 @@ public extension Choreography {
         }
     }
 
-    /// A constant at one location: it's written in the choreography, so making it takes no communication
-    static func locally<Effs: Has, L: Location, V>(_ location: L.Type, constant: V) -> Freer<Effs, At<L, V>> {
-        locally(location) { _ in .pure(constant) }
+    /// A constant at one location: it's written in the choreography, so making it takes no communication.
+    /// Not an overload of `locally`: a trailing closure could be taken for the constant.
+    static func constant<Effs: Has, L: Location, V>(_ value: V, at location: L.Type) -> Freer<Effs, At<L, V>> {
+        locally(location) { _ in .pure(value) }
     }
 
     /// A value held by the whole census, as a plain value: every participant gets the same one,
