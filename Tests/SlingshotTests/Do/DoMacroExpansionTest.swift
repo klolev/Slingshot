@@ -239,6 +239,108 @@ struct DoMacroExpansionTest {
         )
     }
 
+    @Test("a bound condition is bound, then tested")
+    func aBoundConditionIsBoundThenTested() {
+        assertDoExpansion(
+            """
+            #do { bind in
+                if bind(c) {
+                    return 1
+                } else {
+                    return 2
+                }
+            }
+            """,
+            expandedSource: """
+            {
+                return Slingshot._doMonad((c)).flatMap { __doCond1 in
+                    if __doCond1 {
+                        return .pure(1)
+                    } else {
+                        return .pure(2)
+                    }
+                }
+            }()
+            """
+        )
+    }
+
+    @Test("if let binds its value, then matches it with a switch that consumes a local copy")
+    func ifLetMatchesWithASwitch() {
+        assertDoExpansion(
+            """
+            #do { bind in
+                if let s = bind(x) {
+                    return s
+                } else {
+                    return 0
+                }
+            }
+            """,
+            expandedSource: """
+            {
+                return Slingshot._doMonad((x)).flatMap { __doCond1 in
+                    let __doCond1Owned = __doCond1
+                    switch consume __doCond1Owned {
+                    case .some(let s):
+                        return .pure(s)
+                    case .none:
+                        return .pure(0)
+                    }
+                }
+            }()
+            """
+        )
+    }
+
+    @Test("a bound condition can't have a type")
+    func aBoundConditionCantHaveAType() {
+        assertDoExpansion(
+            """
+            #do { bind in
+                if let s: Int = bind(x) {
+                    return s
+                } else {
+                    return 0
+                }
+            }
+            """,
+            expandedSource: """
+            #do { bind in
+                if let s: Int = bind(x) {
+                    return s
+                } else {
+                    return 0
+                }
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "a bound condition can't have a type: give the program its type instead", line: 2, column: 13),
+            ]
+        )
+    }
+
+    @Test("a guard with binds needs something after it")
+    func aGuardWithBindsNeedsSomethingAfterIt() {
+        assertDoExpansion(
+            """
+            #do { bind in
+                let n = bind(x)
+                guard let m = bind(y) else { return 0 }
+            }
+            """,
+            expandedSource: """
+            #do { bind in
+                let n = bind(x)
+                guard let m = bind(y) else { return 0 }
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "a guard with binds needs the rest of the block after it, ending in a return", line: 3, column: 5),
+            ]
+        )
+    }
+
     @Test("the binder has to be named")
     func theBinderHasToBeNamed() {
         assertDoExpansion(
@@ -264,7 +366,7 @@ struct DoMacroExpansionTest {
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "bind can only be used as a top-level `let x = bind(m)`, as `return bind(m)`, or in the branches of an if or switch that all return", line: 2, column: 12),
+                DiagnosticSpec(message: "bind can only be used as a top-level `let x = bind(m)`, as `return bind(m)`, as a whole condition of an if or guard, or in the branches of an if or switch that all return", line: 2, column: 12),
             ]
         )
     }
