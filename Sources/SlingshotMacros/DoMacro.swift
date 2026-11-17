@@ -55,7 +55,7 @@ public struct DoMacro: ExpressionMacro {
         var names = Names()
         // Noncopyable values the block consumes with `consume name`: carried through the program to that point
         let owned = body.consumedNames
-        return .program(try desugar(statements[...], names: &names, owned: owned, declared: []))
+        return .program(try desugar(statements[...], marker: marker, names: &names, owned: owned, declared: []))
     }
 
     /// Replaces each `#do` nested in a block with its expansion
@@ -73,7 +73,7 @@ public struct DoMacro: ExpressionMacro {
 
     /// Emits `statements` as a closure body: plain statements as written, binds as calls whose closures hold the rest.
     /// `owned` are the names the block consumes with `consume`, and `declared` the names already in scope.
-    private static func desugar(_ statements: ArraySlice<Statement>, names: inout Names,
+    private static func desugar(_ statements: ArraySlice<Statement>, marker: BindMarker, names: inout Names,
                                 owned: Set<String>, declared: Set<String>) throws -> String {
         guard let first = statements.firstIndex(where: \.isBind) else {
             return statements.map(\.source).joined(separator: "\n")
@@ -84,6 +84,25 @@ public struct DoMacro: ExpressionMacro {
         if case .returnBind(let expression) = statements[first] {
             // Anything after a return can't run, so it's dropped
             lines.append("return \(expression.trimmedDescription)")
+            return lines.joined(separator: "\n")
+        }
+
+        if case .branchBinding(let declaration, let binding, let branch) = statements[first] {
+            // `let x = if … { A } else { B }; rest` is `if … { let x = A; rest } else { let x = B; rest }`:
+            // each branch gets its own copy of the rest, so no join point has to capture what's in scope
+            let joined = BranchJoin(declaration: declaration, binding: binding, rest: Array(statements[(first + 1)...]))
+            lines.append(try emit(branch, joining: joined, marker: marker, names: &names, owned: owned, declared: declaredBefore))
+            return lines.joined(separator: "\n")
+        }
+
+        if case .branch(let branch, _) = statements[first] {
+            // rewritten first, so a missing else is reported as that, not as the code after it being unreachable
+            let emitted = try emit(branch, marker: marker, names: &names, owned: owned, declared: declaredBefore)
+            // Every path through it returns, so nothing after it could run
+            if let after = statements[(first + 1)...].first {
+                throw error("this can't run: every path through the if or switch before it returns", at: after.node)
+            }
+            lines.append(emitted)
             return lines.joined(separator: "\n")
         }
 
@@ -107,7 +126,7 @@ public struct DoMacro: ExpressionMacro {
                 guard !item.containsReturn else { break scan }
                 pending.append(statements[next])
                 blocked.formUnion(item.identifiers)
-            case .returnBind:
+            case .returnBind, .branch, .branchBinding:
                 break scan
             }
             next += 1
@@ -164,9 +183,83 @@ public struct DoMacro: ExpressionMacro {
         }
         lines += deferred.map(\.source)
         let declaredInside = declaredBefore.union(boundHere).union(deferred.flatMap(\.declaredNames))
-        lines.append(try desugar(rest, names: &names, owned: owned, declared: declaredInside))
+        lines.append(try desugar(rest, marker: marker, names: &names, owned: owned, declared: declaredInside))
         lines += Array(repeating: "}", count: closings + 1)
         return lines.joined(separator: "\n")
+    }
+
+    /// An `if` or `switch` with binds, each branch rewritten as its own block. Branches are plain blocks, not closures,
+    /// so they can consume the values in scope directly.
+    private static func emit(_ branch: Branch, joining join: BranchJoin? = nil, marker: BindMarker, names: inout Names,
+                             owned: Set<String>, declared: Set<String>) throws -> String {
+        switch branch {
+        case .conditional(let conditional):
+            return try emit(conditional, joining: join, marker: marker, names: &names, owned: owned, declared: declared)
+        case .switching(let switching):
+            var lines = ["switch \(switching.subject.trimmedDescription) {"]
+            for element in switching.cases {
+                guard let switchCase = element.as(SwitchCaseSyntax.self) else {
+                    throw error("#if can't go between the cases of a switch with binds", at: element)
+                }
+                lines.append(switchCase.label.trimmedDescription)
+                lines.append(try desugarBranch(switchCase.statements, at: switchCase, joining: join, marker: marker, names: &names, owned: owned, declared: declared))
+            }
+            lines.append("}")
+            return lines.joined(separator: "\n")
+        }
+    }
+
+    private static func emit(_ conditional: IfExprSyntax, joining join: BranchJoin?, marker: BindMarker, names: inout Names,
+                             owned: Set<String>, declared: Set<String>) throws -> String {
+        guard let elseBody = conditional.elseBody else {
+            let message = join == nil
+                ? "an if with binds needs an else: every path has to end in a return"
+                : "an if that gives a value needs an else"
+            throw error(message, at: conditional.ifKeyword)
+        }
+        let body = try desugarBranch(conditional.body.statements, at: conditional.body, joining: join, marker: marker, names: &names, owned: owned, declared: declared)
+        var source = "if \(conditional.conditions.trimmedDescription) {\n\(body)\n}"
+        switch elseBody {
+        case .ifExpr(let nested):
+            source += " else " + (try emit(nested, joining: join, marker: marker, names: &names, owned: owned, declared: declared))
+        case .codeBlock(let block):
+            let otherwise = try desugarBranch(block.statements, at: block, joining: join, marker: marker, names: &names, owned: owned, declared: declared)
+            source += " else {\n\(otherwise)\n}"
+        }
+        return source
+    }
+
+    /// One branch's statements as a block that returns a program: binds are rewritten, and a branch without any
+    /// returns its value in `pure`
+    private static func desugarBranch(_ statements: CodeBlockItemListSyntax, at node: some SyntaxProtocol, joining join: BranchJoin?,
+                                      marker: BindMarker, names: inout Names, owned: Set<String>, declared: Set<String>) throws -> String {
+        let classified: [Statement]
+        if let join {
+            // the branch's last line is its value: bind it as the declared name, then run the rest
+            guard let last = statements.last,
+                  let value = last.item.as(ExpressionStmtSyntax.self)?.expression ?? last.item.as(ExprSyntax.self) else {
+                throw error("the last line of each branch of `\(join.declaration.bindingSpecifier.text) \(join.binding.pattern.trimmedDescription) = if …` or `= switch …` has to be its value", at: statements.last.map { Syntax($0) } ?? Syntax(node))
+            }
+            let head = try statements.dropLast().map { try Statement(classifying: $0, marker: marker) }
+            let typeAnnotation = join.binding.typeAnnotation?.trimmedDescription ?? ""
+            let binding: CodeBlockItemListSyntax = "\(raw: join.declaration.bindingSpecifier.text) \(raw: join.binding.pattern.trimmedDescription)\(raw: typeAnnotation) = \(raw: value.trimmedDescription)"
+            classified = head + (try binding.map { try Statement(classifying: $0, marker: marker) }) + join.rest
+        } else {
+            classified = try statements.map { try Statement(classifying: $0, marker: marker) }
+        }
+        guard let last = classified.last, last.returns else {
+            throw error("each branch of an if or switch with binds has to end in a return", at: classified.last?.node ?? Syntax(node))
+        }
+        if classified.contains(where: \.isBind) {
+            return try desugar(classified[...], marker: marker, names: &names, owned: owned, declared: declared)
+        }
+        // no binds: the value it returns is wrapped in pure, like a block without binds
+        if case .plain(let item) = last, let returned = item.item.as(ReturnStmtSyntax.self),
+           !classified.dropLast().contains(where: { $0.node.containsReturn }) {
+            let value = returned.expression?.trimmedDescription ?? "()"
+            return (classified.dropLast().map(\.source) + ["return .pure(\(value))"]).joined(separator: "\n")
+        }
+        return "return .pure({\n\(classified.map(\.source).joined(separator: "\n"))\n}())"
     }
 
     private static func binderName(of closure: ClosureExprSyntax) -> String? {
@@ -238,10 +331,44 @@ private struct Bind {
     }
 }
 
+/// What follows `let x = if …`: each branch binds its value as `x`, then runs a copy of the rest
+private struct BranchJoin {
+    let declaration: VariableDeclSyntax
+    let binding: PatternBindingSyntax
+    let rest: [Statement]
+}
+
+/// An `if` or `switch` statement with binds in its branches
+private enum Branch {
+    case conditional(IfExprSyntax)
+    case switching(SwitchExprSyntax)
+
+    init?(_ item: CodeBlockItemSyntax) {
+        guard let expression = item.item.as(ExpressionStmtSyntax.self)?.expression ?? item.item.as(ExprSyntax.self) else {
+            return nil
+        }
+        self.init(expression)
+    }
+
+    init?(_ expression: ExprSyntax?) {
+        if let conditional = expression?.as(IfExprSyntax.self) {
+            self = .conditional(conditional)
+        } else if let switching = expression?.as(SwitchExprSyntax.self) {
+            self = .switching(switching)
+        } else {
+            return nil
+        }
+    }
+}
+
 private enum Statement {
     case bind(Bind)
     /// `return bind(expression)`
     case returnBind(ExprSyntax)
+    /// An `if` or `switch` with binds in its branches, each ending in a return
+    case branch(Branch, CodeBlockItemSyntax)
+    /// `let x = if …` or `let x = switch …` with binds in its branches, each ending in its value
+    case branchBinding(VariableDeclSyntax, PatternBindingSyntax, Branch)
     case plain(CodeBlockItemSyntax)
 
     init(classifying item: CodeBlockItemSyntax, marker: BindMarker) throws {
@@ -252,14 +379,45 @@ private enum Statement {
            let expression = marker.argument(of: value) {
             try marker.rejectBinds(in: expression)
             self = .bind(Bind(statement: declaration, binding: binding, expression: expression))
+        } else if let declaration = item.item.as(VariableDeclSyntax.self),
+                  declaration.bindings.count == 1,
+                  let binding = declaration.bindings.first,
+                  let value = binding.initializer?.value,
+                  let branch = Branch(value),
+                  marker.isUsed(in: value) {
+            // its branches are classified when they're rewritten
+            self = .branchBinding(declaration, binding, branch)
         } else if let returnStatement = item.item.as(ReturnStmtSyntax.self),
                   let value = returnStatement.expression,
                   let expression = marker.argument(of: value) {
             try marker.rejectBinds(in: expression)
             self = .returnBind(expression)
+        } else if let branch = Branch(item), marker.isUsed(in: item) {
+            // its branches are classified when they're rewritten
+            self = .branch(branch, item)
         } else {
             try marker.rejectBinds(in: item)
             self = .plain(item)
+        }
+    }
+
+    /// The statement, for errors
+    var node: Syntax {
+        switch self {
+        case .bind(let bind): Syntax(bind.statement)
+        case .returnBind(let expression): Syntax(expression)
+        case .branch(_, let item): Syntax(item)
+        case .branchBinding(let declaration, _, _): Syntax(declaration)
+        case .plain(let item): Syntax(item)
+        }
+    }
+
+    /// Whether the statement ends its block: a return, or a branch whose every path returns
+    var returns: Bool {
+        switch self {
+        case .returnBind, .branch: true
+        case .bind, .branchBinding: false
+        case .plain(let item): item.item.is(ReturnStmtSyntax.self)
         }
     }
 
@@ -271,6 +429,8 @@ private enum Statement {
         switch self {
         case .bind(let bind): bind.statement.trimmedDescription
         case .returnBind(let expression): "return \(expression.trimmedDescription)"
+        case .branch(_, let item): item.trimmedDescription
+        case .branchBinding(let declaration, _, _): declaration.trimmedDescription
         case .plain(let item): item.trimmedDescription
         }
     }
@@ -280,8 +440,11 @@ private enum Statement {
         switch self {
         case .bind(let bind):
             bind.names
-        case .returnBind:
+        case .returnBind, .branch:
+            // a branch's declarations stay inside its branches
             []
+        case .branchBinding(_, let binding, _):
+            binding.pattern.identifiers
         case .plain(let item):
             item.item.as(VariableDeclSyntax.self).map { declaration in
                 Set(declaration.bindings.flatMap { $0.pattern.identifiers })
@@ -294,6 +457,8 @@ private enum Statement {
         switch self {
         case .bind(let bind): bind.statement.consumedNames
         case .returnBind(let expression): expression.consumedNames
+        case .branch(_, let item): item.consumedNames
+        case .branchBinding(let declaration, _, _): declaration.consumedNames
         case .plain(let item): item.consumedNames
         }
     }
@@ -324,19 +489,31 @@ enum BindMarker {
         }
     }
 
+    /// Whether the node binds anywhere outside closures: for an `if` or `switch`, whether its branches need rewriting
+    func isUsed(in node: some SyntaxProtocol) -> Bool {
+        switch self {
+        case .call(let binder):
+            return node.tokens(viewMode: .sourceAccurate).contains { $0.tokenKind == .identifier(binder) }
+        case .await:
+            let finder = AwaitFinder(viewMode: .sourceAccurate)
+            finder.walk(node)
+            return finder.found != nil
+        }
+    }
+
     /// Binds anywhere other than a top-level `let`/`var` or the final `return` can't be rewritten
     func rejectBinds(in node: some SyntaxProtocol) throws {
         switch self {
         case .call(let binder):
             if let token = node.tokens(viewMode: .sourceAccurate).first(where: { $0.tokenKind == .identifier(binder) }) {
-                throw error("\(binder) can only be used as a top-level `let x = \(binder)(m)`, or as `return \(binder)(m)`", at: token)
+                throw error("\(binder) can only be used as a top-level `let x = \(binder)(m)`, as `return \(binder)(m)`, or in the branches of an if or switch that all return", at: token)
             }
         case .await:
             // awaits inside closures belong to them, like an async Embedding.run body
             let finder = AwaitFinder(viewMode: .sourceAccurate)
             finder.walk(node)
             if let found = finder.found {
-                throw error("in @Do, await can only be used as a top-level `let x = await m`, or as `return await m`", at: found)
+                throw error("in @Do, await can only be used as a top-level `let x = await m`, as `return await m`, or in the branches of an if or switch that all return", at: found)
             }
         }
     }

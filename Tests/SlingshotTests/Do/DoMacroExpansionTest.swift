@@ -155,6 +155,90 @@ struct DoMacroExpansionTest {
         )
     }
 
+    @Test("an if with binds is rewritten branch by branch")
+    func anIfWithBindsIsRewrittenBranchByBranch() {
+        assertDoExpansion(
+            """
+            #do { bind in
+                let n = bind(x)
+                if n > 10 {
+                    let m = bind(y(n))
+                    return m + 1
+                } else {
+                    return n
+                }
+            }
+            """,
+            expandedSource: """
+            {
+                return Slingshot._doMonad((x)).flatMap { n in
+                    if n > 10 {
+                        return (y(n)).map { m in
+                            return m + 1
+                        }
+                    } else {
+                        return .pure(n)
+                    }
+                }
+            }()
+            """
+        )
+    }
+
+    @Test("let x = if copies what follows into each branch")
+    func letIfCopiesTheRestIntoEachBranch() {
+        assertDoExpansion(
+            """
+            #do { bind in
+                let n = bind(x)
+                let b = if n > 1 { bind(y) } else { 0 }
+                return n + b
+            }
+            """,
+            expandedSource: """
+            {
+                return Slingshot._doMonad((x)).flatMap { n in
+                    if n > 1 {
+                        return (y).map { b in
+                            return n + b
+                        }
+                    } else {
+                        let b = 0
+                        return .pure(n + b)
+                    }
+                }
+            }()
+            """
+        )
+    }
+
+    @Test("an if with binds needs an else")
+    func anIfWithBindsNeedsAnElse() {
+        assertDoExpansion(
+            """
+            #do { bind in
+                let n = bind(x)
+                if n > 1 {
+                    return bind(y)
+                }
+                return n
+            }
+            """,
+            expandedSource: """
+            #do { bind in
+                let n = bind(x)
+                if n > 1 {
+                    return bind(y)
+                }
+                return n
+            }
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "an if with binds needs an else: every path has to end in a return", line: 3, column: 5),
+            ]
+        )
+    }
+
     @Test("the binder has to be named")
     func theBinderHasToBeNamed() {
         assertDoExpansion(
@@ -180,7 +264,7 @@ struct DoMacroExpansionTest {
             }
             """,
             diagnostics: [
-                DiagnosticSpec(message: "bind can only be used as a top-level `let x = bind(m)`, or as `return bind(m)`", line: 2, column: 12),
+                DiagnosticSpec(message: "bind can only be used as a top-level `let x = bind(m)`, as `return bind(m)`, or in the branches of an if or switch that all return", line: 2, column: 12),
             ]
         )
     }
