@@ -373,10 +373,12 @@ public enum Networking {
     }
 }
 
+/// Plain async code as an effect: a location's local steps, and `congruently` bodies. What it produces can be
+/// noncopyable, like a session made with `try` inside `parallel`.
 @EffectFamily
 public enum Embedding {
     public protocol Interpreter {
-        func run<V>(_ body: @escaping () async throws -> V) async throws -> V
+        func run<V: ~Copyable>(_ body: @escaping () async throws -> V) async throws -> V
     }
 }
 
@@ -776,7 +778,7 @@ enum NodeEmbedded<Local: EffectStack, X: ~Copyable>: Effect, ~Copyable {
 }
 
 struct DirectEmbedding: Embedding.Interpreter {
-    func run<V>(_ body: @escaping () async throws -> V) async throws -> V {
+    func run<V: ~Copyable>(_ body: @escaping () async throws -> V) async throws -> V {
         try await body()
     }
 }

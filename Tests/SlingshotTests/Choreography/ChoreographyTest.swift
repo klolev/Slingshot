@@ -87,7 +87,7 @@ struct InMemoryNetwork: Networking.Interpreter {
 }
 
 struct Direct: Embedding.Interpreter {
-    func run<V>(_ body: @escaping () async throws -> V) async throws -> V {
+    func run<V: ~Copyable>(_ body: @escaping () async throws -> V) async throws -> V {
         try await body()
     }
 }
