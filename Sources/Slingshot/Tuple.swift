@@ -20,6 +20,29 @@ public extension Tuple where First: ~Copyable, Second: ~Copyable {
     consuming func split<R: ~Copyable>(_ body: (consuming First, consuming Second) throws -> R) rethrows -> R {
         try body(first, second)
     }
+
+    /// `split`, handing `body` other values after the two, as parameters: for `#do`, whose carried values a closure
+    /// could only capture
+    consuming func split<C1: ~Copyable, R: ~Copyable>(
+        carrying c1: consuming C1,
+        _ body: (consuming First, consuming Second, consuming C1) throws -> R
+    ) rethrows -> R {
+        try body(first, second, c1)
+    }
+
+    consuming func split<C1: ~Copyable, C2: ~Copyable, R: ~Copyable>(
+        carrying c1: consuming C1, _ c2: consuming C2,
+        _ body: (consuming First, consuming Second, consuming C1, consuming C2) throws -> R
+    ) rethrows -> R {
+        try body(first, second, c1, c2)
+    }
+
+    consuming func split<C1: ~Copyable, C2: ~Copyable, C3: ~Copyable, R: ~Copyable>(
+        carrying c1: consuming C1, _ c2: consuming C2, _ c3: consuming C3,
+        _ body: (consuming First, consuming Second, consuming C1, consuming C2, consuming C3) throws -> R
+    ) rethrows -> R {
+        try body(first, second, c1, c2, c3)
+    }
 }
 
 extension Tuple: Equatable where First: Equatable, Second: Equatable {}

@@ -66,6 +66,38 @@ struct DoMacroExpansionTest {
         )
     }
 
+    @Test("a carried value goes through the split of independent binds")
+    func aCarriedValueGoesThroughTheSplit() {
+        assertDoExpansion(
+            """
+            #do { bind in
+                let s = bind(start)
+                let r = bind(follow(s))
+                let a = bind(x)
+                let b = bind(y(r))
+                return bind(finish(consume s, a, b))
+            }
+            """,
+            expandedSource: """
+            {
+                return Slingshot._doMonad((start)).flatMap { s in
+                    return Slingshot._doMonad((follow(s)).liftA2(x) {
+                            Slingshot.Tuple($0, $1)
+                        }).flatMap(carrying: s) { __doBound1, s in
+                        return __doBound1.split(carrying: s) { __doBound1_0, __doBound1_1, s in
+                            let r = __doBound1_0
+                            let a = __doBound1_1
+                            return Slingshot._doMonad((y(r))).flatMap(carrying: s) { b, s in
+                                return finish(consume s, a, b)
+                            }
+                        }
+                    }
+                }
+            }()
+            """
+        )
+    }
+
     @Test("plain statements between independent binds move after them")
     func plainStatementsBetweenIndependentBindsMoveAfterThem() {
         assertDoExpansion(

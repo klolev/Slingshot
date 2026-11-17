@@ -128,8 +128,11 @@ public struct DoMacro: ExpressionMacro {
             func left(_ level: Int) -> String {
                 level == count - 1 ? bound : level == 0 ? element(0) : "\(bound)_left\(level)"
             }
+            // carried values are parameters of the continuation: split's closure would only capture them,
+            // so they go through each split as parameters too
+            let splitCall = carried.isEmpty ? "split" : "split(carrying: \(carried.joined(separator: ", ")))"
             for level in stride(from: count - 1, through: 1, by: -1) {
-                lines.append("return \(left(level)).split { \(left(level - 1)), \(element(level)) in")
+                lines.append("return \(left(level)).\(splitCall) { \(left(level - 1)), \(element(level))\(carriedParameters) in")
             }
             for (index, bind) in segment.enumerated() {
                 lines.append("\(bind.declaration) = \(element(index))")
