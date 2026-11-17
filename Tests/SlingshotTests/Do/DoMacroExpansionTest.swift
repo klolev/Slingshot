@@ -20,12 +20,14 @@ struct DoMacroExpansionTest {
             expandedSource: """
             {
                 return Slingshot._doMonad((x).liftA2(y) {
-                        ($0, $1)
+                        Slingshot.Tuple($0, $1)
                     }).flatMap { __doBound1 in
-                    let a = __doBound1.0
-                    let b = __doBound1.1
-                    return (f(a, b)).map { c in
-                        return a + b + c
+                    return __doBound1.split { __doBound1_0, __doBound1_1 in
+                        let a = __doBound1_0
+                        let b = __doBound1_1
+                        return (f(a, b)).map { c in
+                            return a + b + c
+                        }
                     }
                 }
             }()
@@ -35,19 +37,28 @@ struct DoMacroExpansionTest {
 
     @Test("a value consumed after a later bind is carried past it")
     func aValueConsumedAfterALaterBindIsCarriedPastIt() {
+        // start and exchange are independent, so they share a liftA2; follow depends on exchange, so it's a later
+        // bind, and s is carried past it to finish
         assertDoExpansion(
             """
             #do { bind in
                 let s = bind(start)
                 let r = bind(exchange)
-                return bind(finish(consume s, r))
+                let t = bind(follow(r))
+                return bind(finish(consume s, t))
             }
             """,
             expandedSource: """
             {
-                return Slingshot._doMonad((start)).flatMap { s in
-                    return Slingshot._doMonad((exchange)).flatMap(carrying: s) { r, s in
-                        return finish(consume s, r)
+                return Slingshot._doMonad((start).liftA2(exchange) {
+                        Slingshot.Tuple($0, $1)
+                    }).flatMap { __doBound1 in
+                    return __doBound1.split { __doBound1_0, __doBound1_1 in
+                        let s = __doBound1_0
+                        let r = __doBound1_1
+                        return Slingshot._doMonad((follow(r))).flatMap(carrying: s) { t, s in
+                            return finish(consume s, t)
+                        }
                     }
                 }
             }()
@@ -69,12 +80,14 @@ struct DoMacroExpansionTest {
             expandedSource: """
             {
                 return (x).liftA2(y) {
-                    ($0, $1)
+                    Slingshot.Tuple($0, $1)
                 } .map { __doBound1 in
-                    let a = __doBound1.0
-                    let b = __doBound1.1
-                    let k = 3
-                    return a + b + k
+                    return __doBound1.split { __doBound1_0, __doBound1_1 in
+                        let a = __doBound1_0
+                        let b = __doBound1_1
+                        let k = 3
+                        return a + b + k
+                    }
                 }
             }()
             """

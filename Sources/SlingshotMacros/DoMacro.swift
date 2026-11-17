@@ -5,11 +5,15 @@ import SwiftSyntaxMacros
 
 /// Rewrites a `#do` block into `map`, `flatMap` and `liftA2`, the way Haskell desugars `do` with ApplicativeDo.
 ///
-///     #do { bind in                         { return (fetchUser(id)).liftA2(fetchConfig()) { ($0, $1) }.map { bound in
-///         let user = bind(fetchUser(id))         let user = bound.0
-///         let config = bind(fetchConfig())  →    let config = bound.1
-///         return render(user, config)            return render(user, config)
-///     }                                       } }()
+///     #do { bind in                         { return (fetchUser(id)).liftA2(fetchConfig()) { Slingshot.Tuple($0, $1) }.map { bound in
+///         let user = bind(fetchUser(id))         return bound.split { bound_0, bound_1 in
+///         let config = bind(fetchConfig())  →        let user = bound_0
+///         return render(user, config)                let config = bound_1
+///     }                                              return render(user, config)
+///                                             } } }()
+///
+/// The values are combined in Slingshot's `Tuple`, not a Swift tuple: a noncopyable value can't go in a Swift tuple,
+/// and `#do` can't tell which values are noncopyable.
 public struct DoMacro: ExpressionMacro {
     public static func expansion(of node: some FreestandingMacroExpansionSyntax,
                                  in context: some MacroExpansionContext) throws -> ExprSyntax {
@@ -72,9 +76,6 @@ public struct DoMacro: ExpressionMacro {
             switch statements[next] {
             case .bind(let bind):
                 guard segment.isEmpty || bind.expression.identifiers.isDisjoint(with: blocked) else { break scan }
-                // An owned value can't go in liftA2's tuple: noncopyable tuples aren't supported, so it binds alone
-                if let only = segment.first, !only.names.isDisjoint(with: owned) { break scan }
-                guard segment.isEmpty || bind.names.isDisjoint(with: owned) else { break scan }
                 segment.append(bind)
                 blocked.formUnion(bind.names)
                 deferred += pending
@@ -100,7 +101,7 @@ public struct DoMacro: ExpressionMacro {
         }
 
         var combined = segment.dropFirst().reduce("(\(segment[0].expression.trimmedDescription))") { combined, bind in
-            "\(combined).liftA2(\(bind.expression.trimmedDescription)) { ($0, $1) }"
+            "\(combined).liftA2(\(bind.expression.trimmedDescription)) { Slingshot.Tuple($0, $1) }"
         }
         let method: String
         if rest.contains(where: \.isBind) {
@@ -112,28 +113,34 @@ public struct DoMacro: ExpressionMacro {
         }
 
         let carrying = carried.isEmpty ? "" : "(carrying: \(carried.joined(separator: ", ")))"
+        // the split closures opened for liftA2's pairs, closed after the rest
+        var closings = 0
         let carriedParameters = carried.map { ", \($0)" }.joined()
         if segment.count == 1, let name = segment[0].simpleName {
             lines.append("return \(combined).\(method)\(carrying) { \(name)\(carriedParameters) in")
         } else {
             let bound = names.next()
             lines.append("return \(combined).\(method)\(carrying) { \(bound)\(carriedParameters) in")
-            for (index, bind) in segment.enumerated() {
-                lines.append("\(bind.declaration) = \(bound)\(tuplePath(of: index, in: segment.count))")
+            // liftA2 nests pairs to the left, ((a, b), c): split them from the outside in, each value a parameter
+            let count = segment.count
+            // a single bind with a pattern or a type annotation has no pair to split: its value is the parameter
+            func element(_ index: Int) -> String { count == 1 ? bound : "\(bound)_\(index)" }
+            func left(_ level: Int) -> String {
+                level == count - 1 ? bound : level == 0 ? element(0) : "\(bound)_left\(level)"
             }
+            for level in stride(from: count - 1, through: 1, by: -1) {
+                lines.append("return \(left(level)).split { \(left(level - 1)), \(element(level)) in")
+            }
+            for (index, bind) in segment.enumerated() {
+                lines.append("\(bind.declaration) = \(element(index))")
+            }
+            closings += count - 1
         }
         lines += deferred.map(\.source)
         let declaredInside = declaredBefore.union(boundHere).union(deferred.flatMap(\.declaredNames))
         lines.append(try desugar(rest, names: &names, owned: owned, declared: declaredInside))
-        lines.append("}")
+        lines += Array(repeating: "}", count: closings + 1)
         return lines.joined(separator: "\n")
-    }
-
-    /// Where element `index` sits in the left-nested pairs liftA2 builds, e.g. `((a, b), c)`: `.0.0`, `.0.1`, `.1`
-    private static func tuplePath(of index: Int, in count: Int) -> String {
-        guard count > 1 else { return "" }
-        let depth = index == 0 ? count - 1 : count - index
-        return String(repeating: ".0", count: depth - 1) + (index == 0 ? ".0" : ".1")
     }
 
     private static func binderName(of closure: ClosureExprSyntax) -> String? {
