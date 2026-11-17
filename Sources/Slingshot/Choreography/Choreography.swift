@@ -16,7 +16,7 @@ public enum Choreography {
         /// runs a local program at L that was already built from a value L holds: what `locally(consuming:)` and
         /// `locally(borrowing:)` make, so their bodies can take the value as a parameter instead of capturing it
         func locallyRun<L: Location, ComputationOutput: ~Copyable>(
-            _ program: consuming At<L, Freer<L.Local, ComputationOutput>>
+            _ program: consuming At<L, Built<Freer<L.Local, ComputationOutput>>>
         ) async throws -> At<L, ComputationOutput>
 
         /// sends a value at location Sender to every location in Receivers: they all hold it afterwards
@@ -41,7 +41,7 @@ public enum Choreography {
         /// runs at every location in S a program already built from its facet: what `parallel(consuming:)` and
         /// `parallel(borrowing:)` make, so their bodies can take the facet as a parameter instead of capturing it
         func parallelRun<S: LocationSet, FacetOutput: ~Copyable>(
-            _ programs: consuming Faceted<S, Freer<S.Shared, FacetOutput>>
+            _ programs: consuming Faceted<S, Built<Freer<S.Shared, FacetOutput>>>
         ) async throws -> Faceted<S, FacetOutput>
 
         /// sends every location in S's facet to every location in Receivers, who then hold all of them
@@ -110,16 +110,22 @@ public struct Projector<Me: Location>: Choreography.Translation {
     }
 
     public func locallyRun<L, ComputationOutput: ~Copyable>(
-        _ program: consuming At<L, Freer<L.Local, ComputationOutput>>
+        _ program: consuming At<L, Built<Freer<L.Local, ComputationOutput>>>
     ) -> Freer<Target, At<L, ComputationOutput>> where L : Location {
         guard Me.self == L.self else {
             return .pure(.absent)
         }
 
         // held here, since this is L: the program was built where the value it came from is held
-        let local = unsafeReinterpret(program.take(), as: Freer<Me.Local, ComputationOutput>.self)
-        return local.translate(LiftIntoNode<Me.Local>())
-            .map { At(value: $0) }
+        switch program.take() {
+        case .built(let program):
+            let local = unsafeReinterpret(program, as: Freer<Me.Local, ComputationOutput>.self)
+            return local.translate(LiftIntoNode<Me.Local>())
+                .map { At(value: $0) }
+        case .failed(let error):
+            // the body threw while building: the step fails when it runs, like a failing effect
+            return Embedding.run { throw error }
+        }
     }
 
     public func send<Sender, Receivers, Value>(
@@ -177,16 +183,21 @@ public struct Projector<Me: Location>: Choreography.Translation {
     }
 
     public func parallelRun<S, FacetOutput: ~Copyable>(
-        _ programs: consuming Faceted<S, Freer<S.Shared, FacetOutput>>
+        _ programs: consuming Faceted<S, Built<Freer<S.Shared, FacetOutput>>>
     ) -> Freer<Target, Faceted<S, FacetOutput>> where S : LocationSet {
         guard S.contains(Me.self) else {
             return .pure(.absent)
         }
 
         // held here, since Me is in S: the program was built from Me's facet
-        let program = S.lift(programs.take(), at: Member<Me, S>(_unchecked: ()))
-        return program.translate(LiftIntoNode<Me.Local>())
-            .map { Faceted(value: $0, at: Me.self) }
+        switch programs.take() {
+        case .built(let program):
+            return S.lift(program, at: Member<Me, S>(_unchecked: ()))
+                .translate(LiftIntoNode<Me.Local>())
+                .map { Faceted(value: $0, at: Me.self) }
+        case .failed(let error):
+            return Embedding.run { throw error }
+        }
     }
 
     public func fanIn<S, Receivers, Value>(
@@ -313,17 +324,20 @@ public extension Choreography {
     ///
     /// The body runs when the choreography reaches this step, only where the value is held, and builds the local
     /// program from it; that program then runs as the step. Write `consume session` inside `#do`, so the block carries
-    /// the session to this step.
+    /// the session to this step. The body can throw, like a session's `finish`: the step then fails at that location,
+    /// as if an effect had thrown. Keep it to computing: effects go in the program it returns.
     ///
     ///     let keys = bind(Choreography.locally(consuming: consume session) { reader, session in
     ///         .pure(session.finish(with: reader(peerTag)))
     ///     })
     static func locally<Effs: Has, L: Location, Owned: ~Copyable, ComputationOutput: ~Copyable>(
         consuming owned: consuming At<L, Owned>,
-        _ body: (L.Reader, consuming Owned) -> Freer<L.Local, ComputationOutput>
+        _ body: (L.Reader, consuming Owned) throws -> Freer<L.Local, ComputationOutput>
     ) -> Freer<Effs, At<L, ComputationOutput>> {
         // held only at L, so the reader is only made there
-        locallyRun(owned.map { body(L.Reader(_unchecked: ()), $0) })
+        locallyRun(owned.map { value in
+            Built.from(value) { value in try body(L.Reader(_unchecked: ()), value) }
+        })
     }
 
     /// Runs local code at the location holding `borrowed`, which reads the value and leaves it in place:
@@ -334,19 +348,21 @@ public extension Choreography {
     ///     let y = bind(Choreography.locally(borrowing: session) { _, session in .pure(session.Y) })
     static func locally<Effs: Has, L: Location, Borrowed: ~Copyable, ComputationOutput: ~Copyable>(
         borrowing borrowed: borrowing At<L, Borrowed>,
-        _ body: (L.Reader, borrowing Borrowed) -> Freer<L.Local, ComputationOutput>
+        _ body: (L.Reader, borrowing Borrowed) throws -> Freer<L.Local, ComputationOutput>
     ) -> Freer<Effs, At<L, ComputationOutput>> {
-        locallyRun(borrowed.borrowMap { body(L.Reader(_unchecked: ()), $0) })
+        locallyRun(borrowed.borrowMap { value in
+            Built.from(borrowing: value) { value in try body(L.Reader(_unchecked: ()), value) }
+        })
     }
     
     /// Facet version of locally
     static func locally<Effs: Has, S: LocationSet, L: Location, Borrowed: ~Copyable, ComputationOutput: ~Copyable>(
         borrowing facets: borrowing Faceted<S, Borrowed>,
         of member: Member<L, S>,
-        _ body: (L.Reader, borrowing Borrowed) -> Freer<L.Local, ComputationOutput>
+        _ body: (L.Reader, borrowing Borrowed) throws -> Freer<L.Local, ComputationOutput>
     ) -> Freer<Effs, At<L, ComputationOutput>> {
-        locallyRun(facets.borrowAt(at: L.self) {
-            body(.init(_unchecked: ()), $0)
+        locallyRun(facets.borrowAt(at: L.self) { facet in
+            Built.from(borrowing: facet) { facet in try body(.init(_unchecked: ()), facet) }
         })
     }
 
@@ -359,9 +375,11 @@ public extension Choreography {
     ///     })
     static func parallel<Effs: Has, S: LocationSet, Owned: ~Copyable, FacetOutput: ~Copyable>(
         consuming owned: consuming Faceted<S, Owned>,
-        _ body: (Facet<S>, consuming Owned) -> Freer<S.Shared, FacetOutput>
+        _ body: (Facet<S>, consuming Owned) throws -> Freer<S.Shared, FacetOutput>
     ) -> Freer<Effs, Faceted<S, FacetOutput>> {
-        parallelRun(owned.map { location, facet in body(Facet(location: location), facet) })
+        parallelRun(owned.map { location, facet in
+            Built.from(facet) { facet in try body(Facet(location: location), facet) }
+        })
     }
 
     /// Runs the same local code at every location in `S`, reading each one's facet and leaving it in place.
@@ -370,9 +388,11 @@ public extension Choreography {
     ///     let publicKeys = bind(Choreography.parallel(borrowing: sessions) { _, session in .pure(session.Y) })
     static func parallel<Effs: Has, S: LocationSet, Borrowed: ~Copyable, FacetOutput: ~Copyable>(
         borrowing borrowed: borrowing Faceted<S, Borrowed>,
-        _ body: (Facet<S>, borrowing Borrowed) -> Freer<S.Shared, FacetOutput>
+        _ body: (Facet<S>, borrowing Borrowed) throws -> Freer<S.Shared, FacetOutput>
     ) -> Freer<Effs, Faceted<S, FacetOutput>> {
-        parallelRun(borrowed.borrowMap { location, facet in body(Facet(location: location), facet) })
+        parallelRun(borrowed.borrowMap { location, facet in
+            Built.from(borrowing: facet) { facet in try body(Facet(location: location), facet) }
+        })
     }
 
     /// A value held by the whole census, as a plain value: every participant gets the same one,
@@ -509,5 +529,30 @@ struct LiftIntoNode<Local: EffectStack>: Translation {
 
     func translate<X: ~Copyable>(_ effect: consuming any Effect<Local, X> & ~Copyable) -> Freer<Choreography.Node<Local>, X> {
         .perform(NodeLifted<Local, X>.lifted(effect))
+    }
+}
+
+/// A local program built by `locally(consuming:)`, `locally(borrowing:)` or the `parallel` ones, or the error its
+/// body threw while building it: the step then fails where it runs, like a failing effect.
+public enum Built<Program: ~Copyable>: ~Copyable {
+    case built(Program)
+    case failed(any Error)
+
+    /// Builds the program from a value it takes: the value is a parameter, so no closure has to capture it
+    static func from<Input: ~Copyable>(_ input: consuming Input, _ make: (consuming Input) throws -> Program) -> Built<Program> {
+        do {
+            return .built(try make(input))
+        } catch {
+            return .failed(error)
+        }
+    }
+
+    /// Builds the program from a value it only reads
+    static func from<Input: ~Copyable>(borrowing input: borrowing Input, _ make: (borrowing Input) throws -> Program) -> Built<Program> {
+        do {
+            return .built(try make(input))
+        } catch {
+            return .failed(error)
+        }
     }
 }

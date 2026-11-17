@@ -212,9 +212,31 @@ func pairing() -> Freer<Choreography.Within<Everyone>, Faceted<Pair, String>> {
         let publicParts = bind(Choreography.parallel(borrowing: secrets) { _, secret in .pure(secret.publicPart) })
         let allParts = bind(Choreography.fanIn(publicParts, to: Pair.self))
         return bind(Choreography.parallel(consuming: consume secrets) { facet, secret in
-            .pure(secret.finish(with: facet(allParts).all.joined(separator: ",")))
+            // each finishes with its peer's part
+            .pure(secret.finish(with: facet.others(facet(allParts)).joined(separator: ",")))
         })
     }
+}
+
+struct Refused: Error {}
+
+/// Alice's local code throws while using up her secret: the step fails at Alice, and nobody else is involved
+func refusal() -> Freer<Choreography.Within<Everyone>, At<Alice, String>> {
+    #do { bind in
+        let secret = bind(Choreography.locally(Alice.self) { _ in .pure(Secret(seed: "s")) })
+        return bind(Choreography.locally(consuming: consume secret) { _, secret in
+            if secret.seed == "s" {
+                throw Refused()
+            }
+            return .pure(secret.finish(with: "never"))
+        })
+    }
+}
+
+func runRefusal<Me: Location>(as proof: Member<Me, Everyone>, local: Me.Local.Interpreter) async throws -> At<Alice, String> {
+    let projected = Choreography.project(refusal(), as: proof)
+    let network = InMemoryNetwork(me: Me.name, everyone: Everyone.members.map { $0.name }, hub: Hub())
+    return try await projected.run(with: Choreography.Node<Me.Local>.Interpreter(local: local, networking: network))
 }
 
 func runPairing<Me: Location>(as proof: Member<Me, Everyone>, local: Me.Local.Interpreter, hub: Hub) async throws -> Faceted<Pair, String> {
@@ -231,6 +253,15 @@ func runHandshake<Me: Location>(as proof: Member<Me, Everyone>, local: Me.Local.
 
 @Suite("choreography")
 struct ChoreographyTest {
+    @Test("a throwing body fails its step where the value is held, and nowhere else")
+    func aThrowingBodyFailsItsStep() async throws {
+        await #expect(throws: Refused.self) {
+            _ = try await runRefusal(as: Alice.member(of: Everyone.self), local: aliceLocal)
+        }
+        let atBob = try await runRefusal(as: Bob.member(of: Everyone.self), local: bobLocal)
+        #expect(!atBob.isHeld)
+    }
+
     @Test("noncopyable facets are read in place at each member, then used up after a fanIn")
     func noncopyableFacetsAreReadThenUsedUp() async throws {
         let hub = Hub()
@@ -239,8 +270,8 @@ struct ChoreographyTest {
         async let carol = runPairing(as: Carol.member(of: Everyone.self), local: Direct(), hub: hub)
 
         let (atAlice, atBob, atCarol) = try await (alice, bob, carol)
-        #expect(Alice.Reader(_unchecked: ())(atAlice) == "alice+ALICE,BOB")
-        #expect(Bob.Reader(_unchecked: ())(atBob) == "bob+ALICE,BOB")
+        #expect(Alice.Reader(_unchecked: ())(atAlice) == "alice+BOB")
+        #expect(Bob.Reader(_unchecked: ())(atBob) == "bob+ALICE")
         #expect(!atCarol.isHeld)
         #expect(await hub.undelivered() == 0)
     }

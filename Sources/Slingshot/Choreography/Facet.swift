@@ -110,3 +110,10 @@ public struct Facet<S: LocationSet> {
         facets.take()
     }
 }
+
+public extension Facet {
+    /// Every other member's facet in a quire gathered from `S`, in the order of `S.members`: for a pair, the peer's
+    func others<V>(_ quire: Quire<S, V>) -> [V] {
+        S.members.filter { $0.name != location.name }.map { quire.values[$0.name]! }
+    }
+}
