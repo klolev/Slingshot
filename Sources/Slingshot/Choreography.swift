@@ -215,27 +215,29 @@ public struct Faceted<S: LocationSet, Value: ~Copyable>: ~Copyable {
 extension Faceted: Copyable where Value: Copyable {}
 extension Faceted: Sendable where Value: Sendable & ~Copyable {}
 
-extension Faceted {
-    /// Only for `@Locations`' `faceted(…)`, which passes one value per member of `S`: each location's facet is
-    /// the one value it holds. Passed anything else, it claims facets the compiler hasn't checked.
-    public init<each L: Location>(_unchecked pieces: repeat At<each L, Value>) {
-        var held: Value? = nil
-        var holder: (any Location.Type)? = nil
-        for piece in repeat each pieces {
-            // the locations are all different, so a node holds at most one of them
-            if let entry = piece.held {
-                holder = entry.location
-                held = entry.value
-            }
+extension Faceted where Value: ~Copyable {
+    /// Only for `@Locations`' `faceted(…)`, which adds one value per member of `S`, starting from `absent`: a member's
+    /// value becomes this node's facet where it's held. Used any other way, it claims facets the compiler hasn't checked.
+    public consuming func _unchecked<L: Location>(adding piece: consuming At<L, Value>) -> Faceted<S, Value> {
+        switch piece.release() {
+        case .some(let value):
+            // the members are all different, so a node holds at most one of their values
+            return Faceted(value: value, at: L.self)
+        case .none:
+            return self
         }
-        self.init(value: held, at: holder)
     }
 }
 
-extension At where S: Location {
-    /// The value with the location holding it, where it's held: for `Faceted`, which remembers its holder
-    fileprivate var held: (location: any Location.Type, value: Value)? {
-        value.map { (S.self, $0) }
+extension At where Value: ~Copyable {
+    /// The value where it's held, nil elsewhere
+    fileprivate consuming func release() -> Value? {
+        switch consume value {
+        case .some(let value):
+            return value
+        case .none:
+            return nil
+        }
     }
 }
 

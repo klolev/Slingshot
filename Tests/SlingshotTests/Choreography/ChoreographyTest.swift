@@ -350,6 +350,13 @@ struct ChoreographyTest {
         #expect(!atCarol.isHeld)
     }
 
+    @Test("faceted makes each member's own noncopyable value its facet")
+    func facetedTakesNoncopyableValues() {
+        let atAlice = Pair.faceted(alice: At<Alice, Secret>(value: Secret(seed: "a")), bob: .absent)
+        let secret = Alice.Reader(_unchecked: ())(atAlice)
+        #expect(secret.seed == "a")
+    }
+
     @Test("faceted makes each member's constant its facet")
     func facetedMakesEachMembersConstantItsFacet() async throws {
         // a program runs once, so each projection gets its own

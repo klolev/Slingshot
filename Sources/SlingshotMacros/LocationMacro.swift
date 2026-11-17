@@ -156,8 +156,9 @@ public struct LocationsMacro: MemberMacro {
         for (member, label) in zip(members, labels) where !seenLabels.insert(label).inserted {
             throw effectError("\(member) would have the same label as another member in faceted(\(label):): rename one of them", at: set.name)
         }
-        let facetedParameters = zip(members, labels).map { "\($1): Slingshot.At<\($0), V>" }.joined(separator: ", ")
-        let facetedArguments = labels.joined(separator: ", ")
+        let facetedParameters = zip(members, labels).map { "\($1): consuming Slingshot.At<\($0), V>" }.joined(separator: ", ")
+        // each member's value joins the facets where it's held: at most one is held at any node
+        let facetedAdditions = labels.map { "._unchecked(adding: \($0))" }.joined()
         let constantParameters = labels.map { "\($0): V" }.joined(separator: ", ")
         // each constant becomes a value at its member, then they're faceted like held values
         let heldArguments = labels.map { "\($0): \($0)Held" }.joined(separator: ", ")
@@ -190,8 +191,8 @@ public struct LocationsMacro: MemberMacro {
             """
             /// One value per member, as \(raw: name)'s facets: each member's facet is its own value. Nothing is sent,
             /// and nothing says the values are equal.
-            \(raw: access)static func faceted<V>(\(raw: facetedParameters)) -> Slingshot.Faceted<\(raw: name), V> {
-                Slingshot.Faceted(_unchecked: \(raw: facetedArguments))
+            \(raw: access)static func faceted<V: ~Copyable>(\(raw: facetedParameters)) -> Slingshot.Faceted<\(raw: name), V> {
+                Slingshot.Faceted<\(raw: name), V>.absent\(raw: facetedAdditions)
             }
             """,
             """
