@@ -25,27 +25,50 @@ public struct DoMacro: ExpressionMacro {
         }
         // Nested blocks are expanded here first: Swift won't expand a macro whose expansion contains itself,
         // and once they're expanded, their binds can't be mistaken for this block's
-        let expander = NestedDoExpander(context: context)
-        let body = expander.rewrite(closure.statements)
-        if let error = expander.errors.first {
-            throw error
+        let body = try expandNested(closure.statements, in: context, at: closure)
+        switch try desugarBlock(body, marker: .call(binder), name: "#do") {
+        case .pure(let value):
+            return "\(raw: ".pure(\(value))")"
+        case .program(let desugared):
+            return "\(raw: "{\n\(desugared)\n}()")"
         }
-        guard let body = body.as(CodeBlockItemListSyntax.self) else {
-            throw error("#do couldn't expand the blocks nested in this one", at: closure)
-        }
-        let statements = try body.map { try Statement(classifying: $0, binder: binder) }
+    }
+
+    /// A rewritten block: with no binds, just its value
+    enum Desugared {
+        /// The block's code as an expression, to wrap in `pure`
+        case pure(String)
+        /// Statements ending in a return
+        case program(String)
+    }
+
+    /// The statements of a `#do` block or an `@Do` body, rewritten into `flatMap`, `map` and `liftA2`
+    static func desugarBlock(_ body: CodeBlockItemListSyntax, marker: BindMarker, name: String) throws -> Desugared {
+        let statements = try body.map { try Statement(classifying: $0, marker: marker) }
 
         guard statements.contains(where: \.isBind) else {
-            return "\(raw: ".pure({\n\(body.trimmedDescription)\n}())")"
+            return .pure("{\n\(body.trimmedDescription)\n}()")
         }
         if let last = statements.last, case .bind(let bind) = last {
-            throw error("#do must end with a return", at: bind.statement)
+            throw error("\(name) must end with a return", at: bind.statement)
         }
         var names = Names()
         // Noncopyable values the block consumes with `consume name`: carried through the program to that point
         let owned = body.consumedNames
-        let desugared = try desugar(statements[...], names: &names, owned: owned, declared: [])
-        return "\(raw: "{\n\(desugared)\n}()")"
+        return .program(try desugar(statements[...], names: &names, owned: owned, declared: []))
+    }
+
+    /// Replaces each `#do` nested in a block with its expansion
+    static func expandNested(_ statements: CodeBlockItemListSyntax, in context: some MacroExpansionContext, at node: some SyntaxProtocol) throws -> CodeBlockItemListSyntax {
+        let expander = NestedDoExpander(context: context)
+        let body = expander.rewrite(statements)
+        if let error = expander.errors.first {
+            throw error
+        }
+        guard let body = body.as(CodeBlockItemListSyntax.self) else {
+            throw error("couldn't expand the #do blocks nested in this one", at: node)
+        }
+        return body
     }
 
     /// Emits `statements` as a closure body: plain statements as written, binds as calls whose closures hold the rest.
@@ -221,21 +244,21 @@ private enum Statement {
     case returnBind(ExprSyntax)
     case plain(CodeBlockItemSyntax)
 
-    init(classifying item: CodeBlockItemSyntax, binder: String) throws {
+    init(classifying item: CodeBlockItemSyntax, marker: BindMarker) throws {
         if let declaration = item.item.as(VariableDeclSyntax.self),
            declaration.bindings.count == 1,
            let binding = declaration.bindings.first,
            let value = binding.initializer?.value,
-           let expression = bindArgument(of: value, binder: binder) {
-            try rejectBinds(in: expression, binder: binder)
+           let expression = marker.argument(of: value) {
+            try marker.rejectBinds(in: expression)
             self = .bind(Bind(statement: declaration, binding: binding, expression: expression))
         } else if let returnStatement = item.item.as(ReturnStmtSyntax.self),
                   let value = returnStatement.expression,
-                  let expression = bindArgument(of: value, binder: binder) {
-            try rejectBinds(in: expression, binder: binder)
+                  let expression = marker.argument(of: value) {
+            try marker.rejectBinds(in: expression)
             self = .returnBind(expression)
         } else {
-            try rejectBinds(in: item, binder: binder)
+            try marker.rejectBinds(in: item)
             self = .plain(item)
         }
     }
@@ -276,23 +299,89 @@ private enum Statement {
     }
 }
 
-/// The `m` in `bind(m)`, when `expression` is exactly that call
-private func bindArgument(of expression: ExprSyntax, binder: String) -> ExprSyntax? {
-    guard let call = expression.as(FunctionCallExprSyntax.self),
-          call.calledExpression.as(DeclReferenceExprSyntax.self)?.baseName.text == binder,
-          call.trailingClosure == nil,
-          call.arguments.count == 1,
-          let argument = call.arguments.first,
-          argument.label == nil else {
-        return nil
+/// How a block marks its binds: `#do` with a call to its closure's parameter, `@Do` with `await`
+enum BindMarker {
+    /// `bind(m)`, named after the `#do` closure's parameter
+    case call(String)
+    /// `await m`, in an `@Do` function's body
+    case await
+
+    /// The `m` in `bind(m)` or `await m`, when `expression` is exactly that
+    func argument(of expression: ExprSyntax) -> ExprSyntax? {
+        switch self {
+        case .call(let binder):
+            guard let call = expression.as(FunctionCallExprSyntax.self),
+                  call.calledExpression.as(DeclReferenceExprSyntax.self)?.baseName.text == binder,
+                  call.trailingClosure == nil,
+                  call.arguments.count == 1,
+                  let argument = call.arguments.first,
+                  argument.label == nil else {
+                return nil
+            }
+            return argument.expression
+        case .await:
+            return expression.as(AwaitExprSyntax.self)?.expression
+        }
     }
-    return argument.expression
+
+    /// Binds anywhere other than a top-level `let`/`var` or the final `return` can't be rewritten
+    func rejectBinds(in node: some SyntaxProtocol) throws {
+        switch self {
+        case .call(let binder):
+            if let token = node.tokens(viewMode: .sourceAccurate).first(where: { $0.tokenKind == .identifier(binder) }) {
+                throw error("\(binder) can only be used as a top-level `let x = \(binder)(m)`, or as `return \(binder)(m)`", at: token)
+            }
+        case .await:
+            // awaits inside closures belong to them, like an async Embedding.run body
+            let finder = AwaitFinder(viewMode: .sourceAccurate)
+            finder.walk(node)
+            if let found = finder.found {
+                throw error("in @Do, await can only be used as a top-level `let x = await m`, or as `return await m`", at: found)
+            }
+        }
+    }
 }
 
-/// Binds anywhere other than a top-level `let`/`var` or the final `return` can't be rewritten
-private func rejectBinds(in node: some SyntaxProtocol, binder: String) throws {
-    if let token = node.tokens(viewMode: .sourceAccurate).first(where: { $0.tokenKind == .identifier(binder) }) {
-        throw error("\(binder) can only be used as a top-level `let x = \(binder)(m)`, or as `return \(binder)(m)`", at: token)
+/// The first `await` outside closures and nested declarations
+private final class AwaitFinder: SyntaxVisitor {
+    var found: AwaitExprSyntax?
+
+    override func visit(_ node: AwaitExprSyntax) -> SyntaxVisitorContinueKind {
+        if found == nil {
+            found = node
+        }
+        return .skipChildren
+    }
+
+    override func visit(_ node: ClosureExprSyntax) -> SyntaxVisitorContinueKind { .skipChildren }
+    override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind { .skipChildren }
+}
+
+/// Rewrites a function's body the way `#do` rewrites its block, with `await` marking each bind: the function's
+/// return type tells every step its type, so there's no binder. The body isn't type-checked as written, only after.
+///
+///     @Do                                             return (fetchUser(id)).liftA2(fetchConfig()) { … }.map { …
+///     func page(_ id: ID) -> Freer<App, Page> {           let user = …
+///         let user = await fetchUser(id)          →      let config = …
+///         let config = await fetchConfig()               return render(user, config)
+///         return render(user, config)                 }
+///     }
+public struct DoBodyMacro: BodyMacro {
+    public static func expansion(
+        of node: AttributeSyntax,
+        providingBodyFor declaration: some DeclSyntaxProtocol & WithOptionalCodeBlockSyntax,
+        in context: some MacroExpansionContext
+    ) throws -> [CodeBlockItemSyntax] {
+        guard let body = declaration.body else {
+            throw error("@Do rewrites a function's body: give the function one", at: node)
+        }
+        let statements = try DoMacro.expandNested(body.statements, in: context, at: body)
+        let source = switch try DoMacro.desugarBlock(statements, marker: .await, name: "@Do") {
+        case .pure(let value): "return .pure(\(value))"
+        case .program(let desugared): desugared
+        }
+        let file: SourceFileSyntax = "\(raw: source)"
+        return Array(file.statements)
     }
 }
 

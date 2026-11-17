@@ -38,6 +38,21 @@
 public macro `do`<M: Bindable & ~Copyable>(_ body: (Binder<M>) -> M.Bound) -> M = #externalMacro(module: "SlingshotMacros", type: "DoMacro")
 where M.Bound: ~Copyable
 
+/// `#do` for a whole function: `await` marks each bind, and the return type says what the steps are.
+///
+///     @Do
+///     func page(_ id: ID) -> Freer<App, Page> {
+///         let user = await fetchUser(id)
+///         let config = await fetchConfig()
+///         return render(user, config)
+///     }
+///
+/// It rewrites the body like `#do`: independent binds share a `liftA2`, and a noncopyable value written as
+/// `consume name` is carried to that point. The body is only type-checked after the rewrite, so a mistake shows up
+/// in the expanded code, not in the lines you wrote.
+@attached(body)
+public macro Do() = #externalMacro(module: "SlingshotMacros", type: "DoBodyMacro")
+
 /// A type `#do` can bind: `Bound` is the value a bind produces.
 public protocol Bindable: ~Copyable {
     associatedtype Bound: ~Copyable
