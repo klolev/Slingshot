@@ -24,32 +24,43 @@
 ///         let name = bind(Reader { $0.name })   // `$0` is an `Env`, taken from the block's type
 ///         return "hello \(name)"
 ///     }
+///
+/// In a `Freer` block, bound values can be noncopyable. The block is checked as the straight-line code you write,
+/// so a value is consumed at most once. To consume one after a later bind, write `consume name`: `#do` then carries
+/// it through the program to that point, since the closures between could only borrow it.
+///
+///     let keys: Freer<App, Keys> = #do { bind in
+///         let session = bind(Pake.start())             // noncopyable
+///         let reply = bind(Network.exchange(...))      // session is carried past this bind…
+///         return bind(Pake.finish(consume session, reply))   // …to here
+///     }
 @freestanding(expression)
-public macro `do`<M: Bindable>(_ body: (Binder<M>) -> M.Bound) -> M = #externalMacro(module: "SlingshotMacros", type: "DoMacro")
+public macro `do`<M: Bindable & ~Copyable>(_ body: (Binder<M>) -> M.Bound) -> M = #externalMacro(module: "SlingshotMacros", type: "DoMacro")
+where M.Bound: ~Copyable
 
 /// A type `#do` can bind: `Bound` is the value a bind produces.
-public protocol Bindable {
-    associatedtype Bound
+public protocol Bindable: ~Copyable {
+    associatedtype Bound: ~Copyable
 }
 
 /// A `Bindable` type with `flatMap`, so `#do` can bind values that depend on earlier binds.
-public protocol DoMonad: Bindable {}
+public protocol DoMonad: Bindable, ~Copyable where Bound: ~Copyable {}
 
 /// Emitted by `#do` before every `flatMap`, so binding through an applicative-only type fails with a clear error.
-public func _doMonad<M: DoMonad>(_ m: M) -> M {
+public func _doMonad<M: DoMonad & ~Copyable>(_ m: consuming M) -> M where M.Bound: ~Copyable {
     m
 }
 
 /// Passed to a `#do` block to mark its binds. It can't be created outside `#do`, so `bind` can't be misused elsewhere.
 /// `M` is the block's type: a bind takes the same type with only the bound value free,
 /// like `>>=`'s `m a -> (a -> m b) -> m b`, so everything else comes from the block.
-public struct Binder<M> {
+public struct Binder<M: ~Copyable> {
     init() {}
 }
 
 // The overloads that bind each type live in CodeGeneration/Generated/*+DoBinder.swift:
 // one per type, because "M with another bound value" needs higher-kinded types.
-public extension Binder {
+public extension Binder where M: ~Copyable {
     /// Any other bind is a different type than its block: picked only when no generated overload fits,
     /// so the error names the problem instead of listing every overload.
     @available(*, unavailable, message: "bind takes a value of its #do block's own type; convert it to that type first")
@@ -90,7 +101,7 @@ extension Reader: Bindable {
     public typealias Bound = Result
 }
 
-extension Freer: Bindable {
+extension Freer: Bindable where A: ~Copyable {
     public typealias Bound = A
 }
 
@@ -100,5 +111,5 @@ extension Result: DoMonad {}
 extension Either: DoMonad {}
 extension IO: DoMonad {}
 extension Reader: DoMonad {}
-extension Freer: DoMonad {}
+extension Freer: DoMonad where A: ~Copyable {}
 #endif

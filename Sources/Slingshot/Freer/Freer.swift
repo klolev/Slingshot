@@ -1,4 +1,12 @@
 /// freer monad effects, more akin to polysem than an actual freer monad implementation. every effect is async throws
+///
+/// The protocols here suppress Copyable on associated types (SE-0503). A generic `E: Effect` then means a copyable
+/// `E.Output` unless it says `where E.Output: ~Copyable`, so every generic use that can see a noncopyable output says so.
+///
+/// Programs are noncopyable, and so can be the values they produce: a program runs once, and each step hands its result
+/// to the next as a `consuming` parameter, so a noncopyable value (a session, a key) moves through it without being copied.
+/// A program's steps that hold existentials are enums, bound with `switch consume`: consuming a noncopyable existential
+/// stored property directly trips a compiler bug in Swift 6.4 ("copy of noncopyable typed value").
 
 /// A family of effects, and what it takes to run them.
 public protocol EffectFamily {
@@ -13,7 +21,7 @@ public protocol EffectStack: EffectFamily {}
 public enum NoEffects: EffectStack {
     public typealias Interpreter = Void
 
-    public static func hoist<Target: EffectStack, V>(_ program: Freer<NoEffects, V>, into target: Target.Type) -> Freer<Target, V> {
+    public static func hoist<Target: EffectStack, V: ~Copyable>(_ program: consuming Freer<NoEffects, V>, into target: Target.Type) -> Freer<Target, V> {
         program.translate(Hoisting<Target>())
     }
 
@@ -21,119 +29,201 @@ public enum NoEffects: EffectStack {
         typealias From = NoEffects
         typealias To = Target
 
-        func translate<X>(_ effect: any Effect<NoEffects, X>) -> Freer<Target, X> {
-            preconditionFailure("\(type(of: effect)) claims NoEffects as its family, which has no effects")
+        func translate<X: ~Copyable>(_ effect: consuming any Effect<NoEffects, X> & ~Copyable) -> Freer<Target, X> {
+            preconditionFailure("an effect claims NoEffects as its family, which has no effects")
         }
     }
 }
 
 /// One operation of a family, which its interpreter performs.
-public protocol Effect<Family, Output> {
+/// An effect runs once, so it can carry noncopyable inputs and produce a noncopyable output.
+public protocol Effect<Family, Output>: ~Copyable {
     associatedtype Family: EffectFamily
-    associatedtype Output
+    associatedtype Output: ~Copyable
 
-    func accept(_ interpreter: Family.Interpreter) async throws -> Output
+    consuming func accept(_ interpreter: Family.Interpreter) async throws -> Output
+
+    /// Hands the effect to a translation written per operation, like an `@EffectFamily`'s `Translation`.
+    /// `@EffectFamily` implements it for its effects; no other effect is ever translated this way.
+    consuming func translated<Translating: FamilyTranslation>(with translation: Translating) -> Freer<Translating.Target, Output>
+}
+
+public extension Effect where Self: ~Copyable, Output: ~Copyable {
+    consuming func translated<Translating: FamilyTranslation>(with translation: Translating) -> Freer<Translating.Target, Output> {
+        preconditionFailure("\(Self.self) isn't an operation of an @EffectFamily, so a family's translation can't translate it")
+    }
+}
+
+/// What every `@EffectFamily`'s `Translation` protocol refines: a translation into programs in `Target`.
+public protocol FamilyTranslation {
+    associatedtype Target: EffectFamily
 }
 
 /// A program in `Family`'s effects that produces an `A`.
-public indirect enum Freer<Family: EffectFamily, A> {
+public enum Freer<Family: EffectFamily, A: ~Copyable>: ~Copyable {
     case pure(A)
     /// An effect, or a sub-program, followed by the rest of the program
-    case step(any FreerStep<Family, A>)
+    case step(any FreerStep<Family, A> & ~Copyable)
     /// Two programs that don't depend on each other, combined: an interpreter can see both before running either
-    case both(any FreerBoth<Family, A>)
+    case both(any FreerBoth<Family, A> & ~Copyable)
 }
 
 /// `∃x. (an effect or program producing x) × (x → Freer f a)`: the existential hides `x`.
-public protocol FreerStep<Family, A> {
+public protocol FreerStep<Family, A>: ~Copyable {
     associatedtype Family: EffectFamily
-    associatedtype A
+    associatedtype A: ~Copyable
 
-    func run(with interpreter: Family.Interpreter) async throws -> A
-    func flatMap<B>(_ transform: @escaping (A) -> Freer<Family, B>) -> any FreerStep<Family, B>
-    func translate<T: Translation>(_ translation: T) -> Freer<T.To, A> where T.From == Family
+    consuming func run(with interpreter: Family.Interpreter) async throws -> A
+    consuming func flatMap<B: ~Copyable>(_ transform: @escaping (consuming A) -> Freer<Family, B>) -> any FreerStep<Family, B> & ~Copyable
+    consuming func translate<T: Translation>(_ translation: T) -> Freer<T.To, A> where T.From == Family
 }
 
 /// `∃x y. Freer f x × Freer f y × (x, y → a)`: the existential hides `x` and `y`.
-public protocol FreerBoth<Family, A> {
+public protocol FreerBoth<Family, A>: ~Copyable {
     associatedtype Family: EffectFamily
-    associatedtype A
+    associatedtype A: ~Copyable
 
-    func run(with interpreter: Family.Interpreter) async throws -> A
-    func map<B>(_ transform: @escaping (A) -> B) -> any FreerBoth<Family, B>
-    func translate<T: Translation>(_ translation: T) -> Freer<T.To, A> where T.From == Family
+    consuming func run(with interpreter: Family.Interpreter) async throws -> A
+    consuming func map<B: ~Copyable>(_ transform: @escaping (consuming A) -> B) -> any FreerBoth<Family, B> & ~Copyable
+    consuming func translate<T: Translation>(_ translation: T) -> Freer<T.To, A> where T.From == Family
+}
+
+/// Runs an effect: a generic function opens the existential, where calling it directly can trip the compiler.
+/// `E.Output: ~Copyable` is spelled out: with SE-0503, `E: Effect` alone would mean a copyable output.
+/// The output type is passed in, so the result doesn't depend on erasing the opened `E.Output` back to `X`.
+func runEffect<E: Effect & ~Copyable, X: ~Copyable>(_ effect: consuming E, as output: X.Type, with interpreter: E.Family.Interpreter) async throws -> X
+where E.Output: ~Copyable {
+    let produced = try await effect.accept(interpreter)
+    // the existential was an Effect with Output X, so E.Output is X
+    return unsafeReinterpret(produced, as: X.self)
 }
 
 /// An effect, then the rest of the program given its output.
-public struct Bind<Family: EffectFamily, X, A>: FreerStep {
-    public let effect: any Effect<Family, X>
-    let next: (X) -> Freer<Family, A>
+public enum Bind<Family: EffectFamily, X: ~Copyable, A: ~Copyable>: FreerStep, ~Copyable {
+    case bind(any Effect<Family, X> & ~Copyable, next: (consuming X) -> Freer<Family, A>)
 
-    public func run(with interpreter: Family.Interpreter) async throws -> A {
-        let x = try await effect.accept(interpreter)
-        return try await next(x).run(with: interpreter)
+    public consuming func run(with interpreter: Family.Interpreter) async throws -> A {
+        switch consume self {
+        case .bind(let effect, let next):
+            let x = try await runEffect(effect, as: X.self, with: interpreter)
+            return try await next(x).run(with: interpreter)
+        }
     }
 
-    public func flatMap<B>(_ transform: @escaping (A) -> Freer<Family, B>) -> any FreerStep<Family, B> {
-        Bind<Family, X, B>(effect: effect, next: { x in self.next(x).flatMap(transform) })
+    public consuming func flatMap<B: ~Copyable>(_ transform: @escaping (consuming A) -> Freer<Family, B>) -> any FreerStep<Family, B> & ~Copyable {
+        switch consume self {
+        case .bind(let effect, let next):
+            // only closures are captured: they're copyable, unlike the effect and its output
+            return Bind<Family, X, B>.bind(effect, next: { x in next(x).flatMap(transform) })
+        }
     }
-    
+
     /// The effect becomes a program, and the rest is translated once it's reached
-    public func translate<T: Translation>(_ translation: T) -> Freer<T.To, A> where T.From == Family {
-        translation.translate(effect).flatMap { x in self.next(x).translate(translation) }
+    public consuming func translate<T: Translation>(_ translation: T) -> Freer<T.To, A> where T.From == Family {
+        switch consume self {
+        case .bind(let effect, let next):
+            return translation.translate(effect).flatMap { x in next(x).translate(translation) }
+        }
     }
 }
 
 /// A whole sub-program, then the rest given its result: how a `both` is followed by more program.
-struct Then<Family: EffectFamily, X, A>: FreerStep {
-    let first: Freer<Family, X>
-    let next: (X) -> Freer<Family, A>
+enum Then<Family: EffectFamily, X: ~Copyable, A: ~Copyable>: FreerStep, ~Copyable {
+    case then(Freer<Family, X>, next: (consuming X) -> Freer<Family, A>)
 
-    func run(with interpreter: Family.Interpreter) async throws -> A {
-        let x = try await first.run(with: interpreter)
-        return try await next(x).run(with: interpreter)
+    consuming func run(with interpreter: Family.Interpreter) async throws -> A {
+        switch consume self {
+        case .then(let first, let next):
+            let x = try await first.run(with: interpreter)
+            return try await next(x).run(with: interpreter)
+        }
     }
 
-    func flatMap<B>(_ transform: @escaping (A) -> Freer<Family, B>) -> any FreerStep<Family, B> {
-        Then<Family, X, B>(first: first, next: { x in self.next(x).flatMap(transform) })
+    consuming func flatMap<B: ~Copyable>(_ transform: @escaping (consuming A) -> Freer<Family, B>) -> any FreerStep<Family, B> & ~Copyable {
+        switch consume self {
+        case .then(let first, let next):
+            return Then<Family, X, B>.then(first, next: { x in next(x).flatMap(transform) })
+        }
     }
-    
-    func translate<T: Translation>(_ translation: T) -> Freer<T.To, A> where T.From == Family {
-        first.translate(translation).flatMap { x in self.next(x).translate(translation) }
+
+    consuming func translate<T: Translation>(_ translation: T) -> Freer<T.To, A> where T.From == Family {
+        switch consume self {
+        case .then(let first, let next):
+            return first.translate(translation).flatMap { x in next(x).translate(translation) }
+        }
+    }
+}
+
+/// A program, then the rest given its result and a value carried alongside: how `#do` keeps a noncopyable value
+/// alive across binds. The step holds the value, so no closure has to capture it.
+enum Carrying<Family: EffectFamily, X: ~Copyable, Carried: ~Copyable, A: ~Copyable>: FreerStep, ~Copyable {
+    case carrying(Freer<Family, X>, Carried, next: (consuming X, consuming Carried) -> Freer<Family, A>)
+
+    consuming func run(with interpreter: Family.Interpreter) async throws -> A {
+        switch consume self {
+        case .carrying(let first, let carried, let next):
+            let x = try await first.run(with: interpreter)
+            return try await next(x, carried).run(with: interpreter)
+        }
+    }
+
+    consuming func flatMap<B: ~Copyable>(_ transform: @escaping (consuming A) -> Freer<Family, B>) -> any FreerStep<Family, B> & ~Copyable {
+        switch consume self {
+        case .carrying(let first, let carried, let next):
+            return Carrying<Family, X, Carried, B>.carrying(first, carried, next: { x, carried in next(x, carried).flatMap(transform) })
+        }
+    }
+
+    consuming func translate<T: Translation>(_ translation: T) -> Freer<T.To, A> where T.From == Family {
+        switch consume self {
+        case .carrying(let first, let carried, let next):
+            return .step(Carrying<T.To, X, Carried, A>.carrying(
+                first.translate(translation),
+                carried,
+                next: { x, carried in next(x, carried).translate(translation) }
+            ))
+        }
     }
 }
 
 /// Two independent programs and how to combine their results.
-public struct Ap<Family: EffectFamily, X, Y, A>: FreerBoth {
-    public let left: Freer<Family, X>
-    public let right: Freer<Family, Y>
-    let combine: (X, Y) -> A
+public enum Ap<Family: EffectFamily, X: ~Copyable, Y: ~Copyable, A: ~Copyable>: FreerBoth, ~Copyable {
+    case ap(Freer<Family, X>, Freer<Family, Y>, combine: (consuming X, consuming Y) -> A)
 
     // In order, left then right: a concurrent interpreter is a separate piece of work
-    public func run(with interpreter: Family.Interpreter) async throws -> A {
-        let x = try await left.run(with: interpreter)
-        let y = try await right.run(with: interpreter)
-        return combine(x, y)
+    public consuming func run(with interpreter: Family.Interpreter) async throws -> A {
+        switch consume self {
+        case .ap(let left, let right, let combine):
+            let x = try await left.run(with: interpreter)
+            let y = try await right.run(with: interpreter)
+            return combine(x, y)
+        }
     }
 
-    public func map<B>(_ transform: @escaping (A) -> B) -> any FreerBoth<Family, B> {
-        Ap<Family, X, Y, B>(left: left, right: right, combine: { x, y in transform(self.combine(x, y)) })
+    public consuming func map<B: ~Copyable>(_ transform: @escaping (consuming A) -> B) -> any FreerBoth<Family, B> & ~Copyable {
+        switch consume self {
+        case .ap(let left, let right, let combine):
+            return Ap<Family, X, Y, B>.ap(left, right, combine: { x, y in transform(combine(x, y)) })
+        }
     }
-    
+
     /// Both sides are translated and stay a `both`: independence survives translation
-    public func translate<T: Translation>(_ translation: T) -> Freer<T.To, A> where T.From == Family {
-        .both(Ap<T.To, X, Y, A>(left: left.translate(translation), right: right.translate(translation), combine: combine))
+    public consuming func translate<T: Translation>(_ translation: T) -> Freer<T.To, A> where T.From == Family {
+        switch consume self {
+        case .ap(let left, let right, let combine):
+            return .both(Ap<T.To, X, Y, A>.ap(left.translate(translation), right.translate(translation), combine: combine))
+        }
     }
 }
 
-public extension Freer {
+public extension Freer where A: ~Copyable {
     /// A program that performs one effect and returns its output
-    static func perform(_ effect: any Effect<Family, A>) -> Freer<Family, A> {
-        .step(Bind(effect: effect, next: { .pure($0) }))
+    static func perform(_ effect: consuming any Effect<Family, A> & ~Copyable) -> Freer<Family, A> {
+        .step(Bind<Family, A, A>.bind(effect, next: { .pure($0) }))
     }
 
-    func run(with interpreter: Family.Interpreter) async throws -> A {
-        switch self {
+    consuming func run(with interpreter: Family.Interpreter) async throws -> A {
+        switch consume self {
         case .pure(let a):
             return a
         case .step(let step):
@@ -143,44 +233,111 @@ public extension Freer {
         }
     }
 
-    func flatMap<B>(_ transform: @escaping (A) -> Freer<Family, B>) -> Freer<Family, B> {
-        switch self {
+    consuming func flatMap<B: ~Copyable>(_ transform: @escaping (consuming A) -> Freer<Family, B>) -> Freer<Family, B> {
+        switch consume self {
         case .pure(let a):
-            transform(a)
+            return transform(a)
         case .step(let step):
-            .step(step.flatMap(transform))
-        case .both:
-            .step(Then(first: self, next: transform))
+            return .step(step.flatMap(transform))
+        case .both(let both):
+            return .step(Then<Family, A, B>.then(.both(both), next: transform))
         }
     }
 
-    func map<B>(_ transform: @escaping (A) -> B) -> Freer<Family, B> {
-        switch self {
+    consuming func map<B: ~Copyable>(_ transform: @escaping (consuming A) -> B) -> Freer<Family, B> {
+        switch consume self {
         case .pure(let a):
-            .pure(transform(a))
+            return .pure(transform(a))
         case .step(let step):
-            .step(step.flatMap { .pure(transform($0)) })
+            return .step(step.flatMap { .pure(transform($0)) })
         case .both(let both):
-            .both(both.map(transform))
+            return .both(both.map(transform))
         }
     }
-    
+
+    /// `flatMap`, with a value held by the program until the result is ready, then handed to `transform` with it.
+    /// `#do` uses it to keep a noncopyable value alive across binds: a closure could only borrow it.
+    consuming func flatMap<Carried: ~Copyable, B: ~Copyable>(
+        carrying carried: consuming Carried,
+        _ transform: @escaping (consuming A, consuming Carried) -> Freer<Family, B>
+    ) -> Freer<Family, B> {
+        switch consume self {
+        case .pure(let a):
+            return transform(a, carried)
+        case .step(let step):
+            return .step(Carrying<Family, A, Carried, B>.carrying(.step(step), carried, next: transform))
+        case .both(let both):
+            return .step(Carrying<Family, A, Carried, B>.carrying(.both(both), carried, next: transform))
+        }
+    }
+
+    /// `map`, carrying a value like `flatMap(carrying:_:)`
+    consuming func map<Carried: ~Copyable, B: ~Copyable>(
+        carrying carried: consuming Carried,
+        _ transform: @escaping (consuming A, consuming Carried) -> B
+    ) -> Freer<Family, B> {
+        flatMap(carrying: carried) { a, carried in .pure(transform(a, carried)) }
+    }
+
+    /// `flatMap(carrying:_:)` with two values, for `#do`
+    consuming func flatMap<C1: ~Copyable, C2: ~Copyable, B: ~Copyable>(
+        carrying c1: consuming C1, _ c2: consuming C2,
+        _ transform: @escaping (consuming A, consuming C1, consuming C2) -> Freer<Family, B>
+    ) -> Freer<Family, B> {
+        flatMap(carrying: CarriedPair(first: c1, second: c2)) { a, pair in pair.apply(a, transform) }
+    }
+
+    /// `flatMap(carrying:_:)` with three values, for `#do`
+    consuming func flatMap<C1: ~Copyable, C2: ~Copyable, C3: ~Copyable, B: ~Copyable>(
+        carrying c1: consuming C1, _ c2: consuming C2, _ c3: consuming C3,
+        _ transform: @escaping (consuming A, consuming C1, consuming C2, consuming C3) -> Freer<Family, B>
+    ) -> Freer<Family, B> {
+        flatMap(carrying: CarriedTriple(first: c1, second: c2, third: c3)) { a, triple in triple.apply(a, transform) }
+    }
+
+    /// `map(carrying:_:)` with two values, for `#do`
+    consuming func map<C1: ~Copyable, C2: ~Copyable, B: ~Copyable>(
+        carrying c1: consuming C1, _ c2: consuming C2,
+        _ transform: @escaping (consuming A, consuming C1, consuming C2) -> B
+    ) -> Freer<Family, B> {
+        map(carrying: CarriedPair(first: c1, second: c2)) { a, pair in pair.apply(a, transform) }
+    }
+
+    /// `map(carrying:_:)` with three values, for `#do`
+    consuming func map<C1: ~Copyable, C2: ~Copyable, C3: ~Copyable, B: ~Copyable>(
+        carrying c1: consuming C1, _ c2: consuming C2, _ c3: consuming C3,
+        _ transform: @escaping (consuming A, consuming C1, consuming C2, consuming C3) -> B
+    ) -> Freer<Family, B> {
+        map(carrying: CarriedTriple(first: c1, second: c2, third: c3)) { a, triple in triple.apply(a, transform) }
+    }
+
     /// Replaces every effect by a program in another family, keeping the result and the structure around it:
     /// `flatMap` for effects, where `flatMap` is for results
-    func translate<T: Translation>(_ translation: T) -> Freer<T.To, A> where T.From == Family {
-        switch self {
+    consuming func translate<T: Translation>(_ translation: T) -> Freer<T.To, A> where T.From == Family {
+        switch consume self {
         case .pure(let a):
-            .pure(a)
+            return .pure(a)
         case .step(let step):
-            step.translate(translation)
+            return step.translate(translation)
         case .both(let both):
-            both.translate(translation)
+            return both.translate(translation)
         }
     }
 
     /// Keeps both programs visible as a `both`, instead of hiding the second behind a continuation like `flatMap`
-    func liftA2<B, C>(_ other: Freer<Family, B>, _ f: @escaping (A, B) -> C) -> Freer<Family, C> {
-        .both(Ap(left: self, right: other, combine: f))
+    consuming func liftA2<B: ~Copyable, C: ~Copyable>(
+        _ other: consuming Freer<Family, B>,
+        _ f: @escaping (consuming A, consuming B) -> C
+    ) -> Freer<Family, C> {
+        .both(Ap<Family, A, B, C>.ap(self, other, combine: f))
+    }
+
+    /// Whether the program starts with two independent programs, for tests and interpreters that inspect it
+    var isBoth: Bool {
+        switch self {
+        case .both: true
+        default: false
+        }
     }
 }
 
@@ -190,5 +347,39 @@ public protocol Translation<From, To> {
     associatedtype From: EffectFamily
     associatedtype To: EffectFamily
 
-    func translate<X>(_ effect: any Effect<From, X>) -> Freer<To, X>
+    func translate<X: ~Copyable>(_ effect: consuming any Effect<From, X> & ~Copyable) -> Freer<To, X>
+}
+
+/// `value` as a `Target`, when `Value` and `Target` are the same type but Swift can't prove it: after comparing
+/// two locations, say, or to undo the type erasure of an existential that's known to hold a `Target`.
+/// Checks that they are the same, then moves the value: `as!` doesn't work on noncopyable values.
+/// Generated code uses it for exactly those cases; calling it with types that might differ is a bug.
+public func unsafeReinterpret<Value: ~Copyable, Target: ~Copyable>(_ value: consuming Value, as target: Target.Type) -> Target {
+    precondition(Value.self == Target.self, "\(Value.self) isn't \(Target.self)")
+    let slot = UnsafeMutablePointer<Value>.allocate(capacity: 1)
+    defer { slot.deallocate() }
+    slot.initialize(to: value)
+    return UnsafeMutableRawPointer(slot).assumingMemoryBound(to: Target.self).move()
+}
+
+/// Two carried values as one: noncopyable values can't go in a tuple yet
+struct CarriedPair<First: ~Copyable, Second: ~Copyable>: ~Copyable {
+    var first: First
+    var second: Second
+
+    /// Hands both values to `body` after `x`: a consuming method, so the fields move out without a closure capturing them
+    consuming func apply<X: ~Copyable, R: ~Copyable>(_ x: consuming X, _ body: (consuming X, consuming First, consuming Second) -> R) -> R {
+        body(x, first, second)
+    }
+}
+
+/// Three carried values as one
+struct CarriedTriple<First: ~Copyable, Second: ~Copyable, Third: ~Copyable>: ~Copyable {
+    var first: First
+    var second: Second
+    var third: Third
+
+    consuming func apply<X: ~Copyable, R: ~Copyable>(_ x: consuming X, _ body: (consuming X, consuming First, consuming Second, consuming Third) -> R) -> R {
+        body(x, first, second, third)
+    }
 }

@@ -58,22 +58,24 @@ public struct EffectsMacro: MemberMacro {
         """
         let injections: [DeclSyntax] = members.map { member in
             """
-            \(raw: access)static func inject<X>(_ effect: any Slingshot.Effect<\(raw: member.family).Family, X>) -> any Slingshot.Effect<\(raw: name), X> {
+            \(raw: access)static func inject<X: ~Copyable>(_ effect: consuming any Slingshot.Effect<\(raw: member.family).Family, X> & ~Copyable) -> any Slingshot.Effect<\(raw: name), X> & ~Copyable {
                 Slingshot.Injected<\(raw: name), \(raw: member.family).Family, X>(effect, at: \\Interpreter.\(raw: member.field))
             }
             """
         }
         let constraint = members.map { "\($0.family).Has" }.joined(separator: " & ")
+        // A type comparison and a move instead of `as?`, which doesn't work on noncopyable values
         let reinjections = members.map { member in
             """
-                    if let injected = effect as? Slingshot.Injected<\(name), \(member.family).Family, X> {
-                        return .perform(Target.inject(injected.effect))
+                    if Effect.self == Slingshot.Injected<\(name), \(member.family).Family, X>.self {
+                        let injected = Slingshot.unsafeReinterpret(effect, as: Slingshot.Injected<\(name), \(member.family).Family, X>.self)
+                        return .perform(Target.inject(injected.take()))
                     }
             """
         }.joined(separator: "\n")
         let hoist: DeclSyntax = """
         /// Moves a program of \(raw: name) into any stack that has all of its families.
-        \(raw: access)static func hoist<Target: \(raw: constraint), V>(_ program: Slingshot.Freer<\(raw: name), V>, into target: Target.Type) -> Slingshot.Freer<Target, V> {
+        \(raw: access)static func hoist<Target: \(raw: constraint), V: ~Copyable>(_ program: consuming Slingshot.Freer<\(raw: name), V>, into target: Target.Type) -> Slingshot.Freer<Target, V> {
             program.translate(Hoisting<Target>())
         }
         """
@@ -83,9 +85,17 @@ public struct EffectsMacro: MemberMacro {
             \(raw: access)typealias From = \(raw: name)
             \(raw: access)typealias To = Target
 
-            \(raw: access)func translate<X>(_ effect: any Slingshot.Effect<\(raw: name), X>) -> Slingshot.Freer<Target, X> {
+            \(raw: access)func translate<X: ~Copyable>(_ effect: consuming any Slingshot.Effect<\(raw: name), X> & ~Copyable) -> Slingshot.Freer<Target, X> {
+                // into a local first: opening a consuming existential parameter directly trips a compiler bug
+                let local = consume effect
+                return reinjected(local, as: X.self)
+            }
+
+            // Opens the effect, so its type can be compared with each family's Injected
+            private func reinjected<Effect: Slingshot.Effect & ~Copyable, X: ~Copyable>(_ effect: consuming Effect, as output: X.Type) -> Slingshot.Freer<Target, X>
+            where Effect.Output: ~Copyable {
         \(raw: reinjections)
-                preconditionFailure("\\(type(of: effect)) is an effect of \(raw: name) that its inject didn't make")
+                preconditionFailure("\\(Effect.self) is an effect of \(raw: name) that its inject didn't make")
             }
         }
         """

@@ -103,6 +103,38 @@ fileprivate final class Recorder: Log.Interpreter {
     }
 }
 
+/// A noncopyable ticket, like a session: each use takes it
+struct Ticket: ~Copyable {
+    let number: Int
+}
+
+@EffectFamily
+enum Tickets {
+    protocol Interpreter {
+        func issue() async throws -> Ticket
+        func redeem(_ ticket: consuming Ticket, note: String) async throws -> Int
+        func peek(_ label: String) async throws -> String
+    }
+}
+
+struct Office: Tickets.Interpreter {
+    func issue() async throws -> Ticket {
+        Ticket(number: 7)
+    }
+
+    func redeem(_ ticket: consuming Ticket, note: String) async throws -> Int {
+        ticket.number + note.count
+    }
+
+    func peek(_ label: String) async throws -> String {
+        label
+    }
+}
+
+/// A bigger stack than App, to hoist App's programs into
+@Effects
+fileprivate enum Bigger: Keychain.Has, Log.Has, Files.Has {}
+
 /// Works in any stack with both families, without naming one
 fileprivate func cachedToken<Effs: Keychain.Has & Log.Has>() -> Freer<Effs, String?> {
     #do { bind in
@@ -147,7 +179,7 @@ struct EffectsTest {
             let b = bind(Keychain.load("b"))
             return (a ?? "-") + (b ?? "-")
         }
-        guard case .both = program else {
+        guard program.isBoth else {
             Issue.record("two independent binds should combine with liftA2 into a both")
             return
         }
@@ -195,13 +227,35 @@ struct EffectsTest {
             return (a ?? "-") + (b ?? "-")
         }
         let onFiles = Keychain.translate(program, with: KeychainOnFiles())
-        guard case .both = onFiles else {
+        guard onFiles.isBoth else {
             Issue.record("translating a both should give a both")
             return
         }
         let files = MemoryFiles()
         files.contents = ["keychain/b": "2"]
         #expect(try await onFiles.run(with: files) == "-2")
+    }
+
+    @Test("a noncopyable value is carried across a bind to the step that consumes it")
+    func aNoncopyableValueIsCarried() async throws {
+        let program: Freer<Tickets.Family, String> = #do { bind in
+            let ticket = bind(Tickets.issue())
+            let label = bind(Tickets.peek("ticket"))
+            // uses label, so it runs after peek: the ticket has to be carried past it
+            let number = bind(Tickets.redeem(consume ticket, note: label))
+            return "\(label) \(number)"
+        }
+        #expect(try await program.run(with: Office()) == "ticket 13")
+    }
+
+    @Test("a stack's program hoists into a bigger stack")
+    func aStacksProgramHoistsIntoABiggerStack() async throws {
+        let program: Freer<App, String?> = cachedToken()
+        let hoisted = App.hoist(program, into: Bigger.self)
+        let log = Recorder()
+        let token = try await hoisted.run(with: Bigger.Interpreter(keychain: MemoryKeychain(["token": "abc"]), log: log, files: MemoryFiles()))
+        #expect(token == "abc")
+        #expect(log.messages == ["token found"])
     }
 
     @Test("an effect's arguments keep their labels")

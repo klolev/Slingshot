@@ -31,7 +31,9 @@ struct DoBinderTemplate: Template {
 
         let fresh = "X"
         // A Sendable applicative needs Sendable values, and a container its elements' constraints
+        let noncopyable = type.noncopyable == true
         let constraints = (type.applicative?.sendable == true ? ["Sendable"] : []) + (type.elementConstraints ?? [])
+            + (noncopyable ? ["~Copyable"] : [])
         func constrained(_ name: String) -> String {
             constraints.isEmpty ? name : "\(name): \(constraints.joined(separator: " & "))"
         }
@@ -53,7 +55,7 @@ struct DoBinderTemplate: Template {
         } else {
             let genericParams = arguments.map { $0 == bound ? constrained($0) : $0 } + [constrained(fresh)]
             method = """
-                func callAsFunction<\(genericParams.joined(separator: ", "))>(_ m: \(rebound(fresh))) -> \(fresh) where M == \(blockType) {
+                func callAsFunction<\(genericParams.joined(separator: ", "))>(_ m: \(noncopyable ? "consuming " : "")\(rebound(fresh))) -> \(fresh) where M == \(blockType) {
                     fatalError("bind only works inside #do")
                 }
             """
@@ -61,7 +63,7 @@ struct DoBinderTemplate: Template {
 
         let contents = """
         #if Macros
-        public extension Binder {
+        public extension Binder\(noncopyable ? " where M: ~Copyable" : "") {
             /// Binds inside a #do block of type \(type.name), where a bind can only differ from the block in its `\(bound)`.
         \(method)
         }

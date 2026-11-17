@@ -38,15 +38,21 @@ public struct DoMacro: ExpressionMacro {
             throw error("#do must end with a return", at: bind.statement)
         }
         var names = Names()
-        return "\(raw: "{\n\(desugar(statements[...], names: &names))\n}()")"
+        // Noncopyable values the block consumes with `consume name`: carried through the program to that point
+        let owned = body.consumedNames
+        let desugared = try desugar(statements[...], names: &names, owned: owned, declared: [])
+        return "\(raw: "{\n\(desugared)\n}()")"
     }
 
     /// Emits `statements` as a closure body: plain statements as written, binds as calls whose closures hold the rest.
-    private static func desugar(_ statements: ArraySlice<Statement>, names: inout Names) -> String {
+    /// `owned` are the names the block consumes with `consume`, and `declared` the names already in scope.
+    private static func desugar(_ statements: ArraySlice<Statement>, names: inout Names,
+                                owned: Set<String>, declared: Set<String>) throws -> String {
         guard let first = statements.firstIndex(where: \.isBind) else {
             return statements.map(\.source).joined(separator: "\n")
         }
         var lines = statements[..<first].map(\.source)
+        let declaredBefore = declared.union(statements[..<first].flatMap(\.declaredNames))
 
         if case .returnBind(let expression) = statements[first] {
             // Anything after a return can't run, so it's dropped
@@ -66,6 +72,9 @@ public struct DoMacro: ExpressionMacro {
             switch statements[next] {
             case .bind(let bind):
                 guard segment.isEmpty || bind.expression.identifiers.isDisjoint(with: blocked) else { break scan }
+                // An owned value can't go in liftA2's tuple: noncopyable tuples aren't supported, so it binds alone
+                if let only = segment.first, !only.names.isDisjoint(with: owned) { break scan }
+                guard segment.isEmpty || bind.names.isDisjoint(with: owned) else { break scan }
                 segment.append(bind)
                 blocked.formUnion(bind.names)
                 deferred += pending
@@ -81,6 +90,15 @@ public struct DoMacro: ExpressionMacro {
         }
         let rest = ArraySlice(pending + statements[next...])
 
+        // Owned values declared before these binds and consumed after them: the continuation is a closure, which
+        // could only borrow them, so the program carries them and hands them back as the continuation's parameters
+        let boundHere = Set(segment.flatMap(\.names))
+        let consumedLater = Set((deferred + rest).flatMap(\.consumedNames))
+        let carried = owned.intersection(declaredBefore).intersection(consumedLater).subtracting(boundHere).sorted()
+        guard carried.count <= 3 else {
+            throw error("\(carried.joined(separator: ", ")) are all consumed after this bind: #do can carry at most 3 values past one, so consume some sooner", at: segment[0].statement)
+        }
+
         var combined = segment.dropFirst().reduce("(\(segment[0].expression.trimmedDescription))") { combined, bind in
             "\(combined).liftA2(\(bind.expression.trimmedDescription)) { ($0, $1) }"
         }
@@ -93,17 +111,20 @@ public struct DoMacro: ExpressionMacro {
             method = "map"
         }
 
+        let carrying = carried.isEmpty ? "" : "(carrying: \(carried.joined(separator: ", ")))"
+        let carriedParameters = carried.map { ", \($0)" }.joined()
         if segment.count == 1, let name = segment[0].simpleName {
-            lines.append("return \(combined).\(method) { \(name) in")
+            lines.append("return \(combined).\(method)\(carrying) { \(name)\(carriedParameters) in")
         } else {
             let bound = names.next()
-            lines.append("return \(combined).\(method) { \(bound) in")
+            lines.append("return \(combined).\(method)\(carrying) { \(bound)\(carriedParameters) in")
             for (index, bind) in segment.enumerated() {
                 lines.append("\(bind.declaration) = \(bound)\(tuplePath(of: index, in: segment.count))")
             }
         }
         lines += deferred.map(\.source)
-        lines.append(desugar(rest, names: &names))
+        let declaredInside = declaredBefore.union(boundHere).union(deferred.flatMap(\.declaredNames))
+        lines.append(try desugar(rest, names: &names, owned: owned, declared: declaredInside))
         lines.append("}")
         return lines.joined(separator: "\n")
     }
@@ -220,6 +241,29 @@ private enum Statement {
         case .plain(let item): item.trimmedDescription
         }
     }
+
+    /// The names the statement declares at the top level of the block
+    var declaredNames: Set<String> {
+        switch self {
+        case .bind(let bind):
+            bind.names
+        case .returnBind:
+            []
+        case .plain(let item):
+            item.item.as(VariableDeclSyntax.self).map { declaration in
+                Set(declaration.bindings.flatMap { $0.pattern.identifiers })
+            } ?? []
+        }
+    }
+
+    /// The names the statement consumes with `consume name`
+    var consumedNames: Set<String> {
+        switch self {
+        case .bind(let bind): bind.statement.consumedNames
+        case .returnBind(let expression): expression.consumedNames
+        case .plain(let item): item.consumedNames
+        }
+    }
 }
 
 /// The `m` in `bind(m)`, when `expression` is exactly that call
@@ -251,11 +295,29 @@ private extension SyntaxProtocol {
         })
     }
 
+    /// The names consumed with `consume name` anywhere in the node
+    var consumedNames: Set<String> {
+        let finder = ConsumeFinder(viewMode: .sourceAccurate)
+        finder.walk(self)
+        return finder.names
+    }
+
     /// Whether the node returns from the `#do` block, not counting returns inside closures and nested declarations
     var containsReturn: Bool {
         let finder = ReturnFinder(viewMode: .sourceAccurate)
         finder.walk(self)
         return finder.found
+    }
+}
+
+private final class ConsumeFinder: SyntaxVisitor {
+    var names: Set<String> = []
+
+    override func visit(_ node: ConsumeExprSyntax) -> SyntaxVisitorContinueKind {
+        if let reference = node.expression.as(DeclReferenceExprSyntax.self) {
+            names.insert(reference.baseName.text)
+        }
+        return .visitChildren
     }
 }
 

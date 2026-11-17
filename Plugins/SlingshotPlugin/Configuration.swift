@@ -42,6 +42,8 @@ struct Configuration: Decodable {
         let elementConstraints: [String]?
         /// The type argument a `#do` bind produces, when it's neither the applicative's nor the only one, e.g. `Reader`'s `Result`
         let bound: String?
+        /// The type is noncopyable, and so can its bound value be, e.g. `Freer`: its binder takes values by `consuming`
+        let noncopyable: Bool?
         let conformances: [Conformance]
     }
     

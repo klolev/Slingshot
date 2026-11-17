@@ -62,17 +62,14 @@ public struct EffectFamilyMacro: MemberMacro {
         """
         let operationProtocol: DeclSyntax = """
         /// What \(raw: name)'s effects have in common: they run with the family's interpreter.
-        \(raw: access)protocol Operation: Slingshot.Effect where Family == \(raw: name).Family {
-            /// This effect as a program in the translation's target
-            func translated<Translating: Translation>(with translation: Translating) -> Slingshot.Freer<Translating.Target, Output>
-        }
+        /// Noncopyable, like every effect: one runs once, so it can carry noncopyable arguments and produce a noncopyable output.
+        /// `Output: ~Copyable` is spelled out: refining Effect would otherwise make the output copyable (SE-0503).
+        \(raw: access)protocol Operation: Slingshot.Effect, ~Copyable where Family == \(raw: name).Family, Output: ~Copyable {}
         """
         let requirements = operations.map { $0.translationRequirement }.joined(separator: "\n")
         let translation: DeclSyntax = """
         /// Translates \(raw: name)'s effects into programs in `Target`: one method per operation of \(raw: name).Interpreter.
-        \(raw: access)protocol Translation {
-            associatedtype Target: Slingshot.EffectFamily
-        
+        \(raw: access)protocol Translation: Slingshot.FamilyTranslation {
             \(raw: requirements)
         }
         """
@@ -88,22 +85,17 @@ public struct EffectFamilyMacro: MemberMacro {
                 self.translation = translation
             }
         
-            \(raw: access)func translate<X>(_ effect: any Slingshot.Effect<Family, X>) -> Slingshot.Freer<T.Target, X> {
-                guard let operation = effect as? any Operation else {
-                    preconditionFailure("\\(type(of: effect)) is an effect of \(raw: name) that @EffectFamily didn't generate")
-                }
-                return translated(operation)
-            }
-        
-            // Opens the operation: its Output is X, which Swift can't see through the existential
-            private func translated<O: Operation, X>(_ operation: O) -> Slingshot.Freer<T.Target, X> {
-                operation.translated(with: translation) as! Slingshot.Freer<T.Target, X>
+            \(raw: access)func translate<X: ~Copyable>(_ effect: consuming any Slingshot.Effect<Family, X> & ~Copyable) -> Slingshot.Freer<T.Target, X> {
+                // into a local first: opening a consuming existential parameter directly trips a compiler bug
+                let operation = consume effect
+                // each of the family's effects calls the translation's method for its operation
+                return operation.translated(with: translation)
             }
         }
         """
         let translate: DeclSyntax = """
         /// Replaces each of \(raw: name)'s effects in `program` by `translation`'s program for it.
-        \(raw: access)static func translate<A, T: Translation>(_ program: Slingshot.Freer<Family, A>, with translation: T) -> Slingshot.Freer<T.Target, A> {
+        \(raw: access)static func translate<A: ~Copyable, T: Translation>(_ program: consuming Slingshot.Freer<Family, A>, with translation: T) -> Slingshot.Freer<T.Target, A> {
             program.translate(Translator(translation))
         }
         """
@@ -111,7 +103,7 @@ public struct EffectFamilyMacro: MemberMacro {
         let has: DeclSyntax = """
         /// The stacks that contain this family: \(raw: name)'s constructors work in any of them.
         \(raw: access)protocol Has: Slingshot.EffectStack {
-            static func inject<X>(_ effect: any Slingshot.Effect<Family, X>) -> any Slingshot.Effect<Self, X>
+            static func inject<X: ~Copyable>(_ effect: consuming any Slingshot.Effect<Family, X> & ~Copyable) -> any Slingshot.Effect<Self, X> & ~Copyable
         }
         """
         let familyDecl: DeclSyntax = """
@@ -119,12 +111,12 @@ public struct EffectFamilyMacro: MemberMacro {
         \(raw: access)enum Family: Has {
             \(raw: access)typealias Interpreter = any \(raw: name).Interpreter
 
-            \(raw: access)static func inject<X>(_ effect: any Slingshot.Effect<Family, X>) -> any Slingshot.Effect<Family, X> {
+            \(raw: access)static func inject<X: ~Copyable>(_ effect: consuming any Slingshot.Effect<Family, X> & ~Copyable) -> any Slingshot.Effect<Family, X> & ~Copyable {
                 effect
             }
 
             /// Moves a program of \(raw: name) alone into any stack that has \(raw: name).
-            \(raw: access)static func hoist<Target: Has, V>(_ program: Slingshot.Freer<Family, V>, into target: Target.Type) -> Slingshot.Freer<Target, V> {
+            \(raw: access)static func hoist<Target: Has, V: ~Copyable>(_ program: consuming Slingshot.Freer<Family, V>, into target: Target.Type) -> Slingshot.Freer<Target, V> {
                 program.translate(Hoisting<Target>())
             }
 
@@ -132,7 +124,7 @@ public struct EffectFamilyMacro: MemberMacro {
                 \(raw: access)typealias From = Family
                 \(raw: access)typealias To = Target
 
-                \(raw: access)func translate<X>(_ effect: any Slingshot.Effect<Family, X>) -> Slingshot.Freer<Target, X> {
+                \(raw: access)func translate<X: ~Copyable>(_ effect: consuming any Slingshot.Effect<Family, X> & ~Copyable) -> Slingshot.Freer<Target, X> {
                     .perform(Target.inject(effect))
                 }
             }
@@ -148,6 +140,7 @@ private struct Operation {
         /// The argument label, or nil for `_`
         let label: String?
         let name: String
+        /// The type the effect's init and constructor take: `borrowing` becomes `consuming`, since the effect keeps the value
         let type: String
         let storedType: String
     }
@@ -186,16 +179,6 @@ private struct Operation {
         if function.modifiers.contains(where: { $0.name.tokenKind == .keyword(.static) }) {
             throw effectError("effects are performed on an interpreter value, so `\(function.name.text)` can't be static", at: function.name)
         }
-        if let generics = function.genericParameterClause {
-            for generic in generics.parameters where generic.inheritedType.map(mentionsNoncopyable) ?? false {
-                throw noncopyableError(at: generic)
-            }
-
-        }
-        if let whereClause = function.genericWhereClause, mentionsNoncopyable(whereClause) {
-            throw noncopyableError(at: whereClause)
-        }
-
         guard case .identifier = function.name.tokenKind else {
             throw effectError("operators can't be effects: give the requirement a name", at: function.name)
         }
@@ -218,7 +201,7 @@ private struct Operation {
                 throw effectError("name the parameter: the effect stores it under that name", at: parameter)
             }
             let label = parameter.firstName.text == "_" ? nil : parameter.firstName.text
-            return Parameter(label: label, name: name, type: parameter.type.trimmedDescription, storedType: storedType(parameter.type))
+            return Parameter(label: label, name: name, type: ownedType(parameter.type), storedType: storedType(parameter.type))
         }
         
         let argumentNames = Set(
@@ -247,7 +230,8 @@ private struct Operation {
     }
 
     func effect(access: String) -> String {
-        let properties = parameters.map { "\(access)let \($0.name): \($0.storedType)" }.joined(separator: "\n")
+        // var, so a consuming accept can move a noncopyable argument out
+        let properties = parameters.map { "\(access)var \($0.name): \($0.storedType)" }.joined(separator: "\n")
         let initParameters = parameters.map { "\($0.name): \($0.type)" }.joined(separator: ", ")
         let assignments = parameters.map { "self.\($0.name) = \($0.name)" }.joined(separator: "\n")
         let arguments = parameters.map { ($0.label.map { "\($0): " } ?? "") + "self.\($0.name)" }.joined(separator: ", ")
@@ -255,7 +239,7 @@ private struct Operation {
         // `Family` comes from `Operation`, and `Interpreter` from the family: neither is spelled with the family's name
         return """
         /// Performs `\(name)` with the stack's interpreter.
-        \(access)struct \(effectName)\(genericClause): Operation\(whereClause) {
+        \(access)struct \(effectName)\(genericClause): Operation, ~Copyable\(whereClause) {
             \(access)typealias Output = \(output)
 
             \(properties)
@@ -264,12 +248,21 @@ private struct Operation {
                 \(assignments)
             }
 
-            \(access)func accept(_ interpreter: any Interpreter) async throws -> \(output) {
+            \(access)consuming func accept(_ interpreter: any Interpreter) async throws -> \(output) {
                 \(call)
             }
-        
-            \(access)func translated<Translating: Translation>(with translation: Translating) -> Slingshot.Freer<Translating.Target, \(output)> {
-                translation.\(name)(\(arguments))
+
+            \(access)consuming func translated<Translating: Slingshot.FamilyTranslation>(with translating: Translating) -> Slingshot.Freer<Translating.Target, \(output)> {
+                // only a family's own translations reach its effects: Translator passes the one it wraps
+                guard let translation = translating as? any Translation else {
+                    preconditionFailure("\\(Translating.self) isn't a translation of this effect's family")
+                }
+                return translated(by: translation, into: Translating.Target.self)
+            }
+
+            // Opens the translation: it's Translating, whose Target Swift can't see through the existential
+            private consuming func translated<Translating: Translation, Target: Slingshot.EffectFamily>(by translation: Translating, into target: Target.Type) -> Slingshot.Freer<Target, \(output)> {
+                Slingshot.unsafeReinterpret(translation.\(name)(\(arguments)), as: Slingshot.Freer<Target, \(output)>.self)
             }
         }
         """
@@ -283,30 +276,35 @@ private struct Operation {
 
     func constructor(family: String, access: String) -> DeclSyntax {
         let arguments = parameters.map { "\($0.name): \($0.name)" }.joined(separator: ", ")
+        // the requirement's own labels and names, with the types the effect takes: it keeps its arguments
+        let constructorParameters = parameters.map { parameter in
+            let label = parameter.label ?? "_"
+            return (label == parameter.name ? label : "\(label) \(parameter.name)") + ": \(parameter.type)"
+        }.joined(separator: ", ")
         return """
         /// A program that performs `\(raw: name)` in any stack that has \(raw: family).
-        \(raw: access)static func \(raw: name)<\(raw: (["Effs: Has"] + genericParameters).joined(separator: ", "))>(\(raw: declaration.signature.parameterClause.parameters.trimmedDescription)) -> Slingshot.Freer<Effs, \(raw: output)>\(raw: whereClause) {
+        \(raw: access)static func \(raw: name)<\(raw: (["Effs: Has"] + genericParameters).joined(separator: ", "))>(\(raw: constructorParameters)) -> Slingshot.Freer<Effs, \(raw: output)>\(raw: whereClause) {
             .perform(Effs.inject(Operations.\(raw: effectName)(\(raw: arguments))))
         }
         """
     }
 }
 
-/// The type of a stored property holding a parameter: `@escaping` only applies to parameters
+/// The type of a stored property holding a parameter: `@escaping`, `consuming` and `borrowing` only apply to parameters
 private func storedType(_ type: TypeSyntax) -> String {
     guard let attributed = type.as(AttributedTypeSyntax.self) else { return type.trimmedDescription }
     let attributes = attributed.attributes.filter { $0.as(AttributeSyntax.self)?.attributeName.trimmedDescription != "escaping" }
-    return attributed.with(\.attributes, attributes).trimmedDescription
+    if attributes.isEmpty {
+        return attributed.baseType.trimmedDescription
+    }
+    return attributed.with(\.attributes, attributes).with(\.specifiers, TypeSpecifierListSyntax([])).trimmedDescription
 }
 
-/// Whether a constraint suppresses Copyable: a `~` token followed by `Copyable`
-private func mentionsNoncopyable(_ node: some SyntaxProtocol) -> Bool {
-    let tokens = Array(node.tokens(viewMode: .sourceAccurate))
-    return zip(tokens, tokens.dropFirst()).contains { $0.text == "~" && $1.text == "Copyable" }
-}
-
-private func noncopyableError(at node: some SyntaxProtocol) -> DiagnosticsError {
-    effectError("Freer can't carry noncopyable values: a program keeps results in closures, which can't consume what they capture", at: node)
+/// The type of a parameter the effect keeps: a borrowed value would have to be copied to be kept, so it's taken instead
+private func ownedType(_ type: TypeSyntax) -> String {
+    let written = type.trimmedDescription
+    guard written.hasPrefix("borrowing ") else { return written }
+    return "consuming " + written.dropFirst("borrowing ".count)
 }
 
 

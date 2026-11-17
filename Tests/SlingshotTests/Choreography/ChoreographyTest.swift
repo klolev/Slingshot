@@ -176,8 +176,89 @@ func runChorus<Me: Location>(as proof: Member<Me, Everyone>, local: Me.Local.Int
     return try await projected.run(with: Choreography.Node<Me.Local>.Interpreter(local: local, networking: network))
 }
 
+/// A one-use secret, like a CPace session: reading its public part only borrows it, finishing uses it up
+struct Secret: ~Copyable {
+    let seed: String
+
+    var publicPart: String {
+        seed.uppercased()
+    }
+
+    consuming func finish(with answer: String) -> String {
+        "\(seed)+\(answer)"
+    }
+}
+
+/// Alice makes a secret, shows Bob its public part, Bob answers, and Alice finishes the secret with the answer:
+/// the secret never leaves Alice, and #do carries it across both sends to the step that uses it up
+func handshake() -> Freer<Choreography.Within<Everyone>, At<Alice, String>> {
+    #do { bind in
+        let secret = bind(Choreography.locally(Alice.self) { _ in .pure(Secret(seed: "s")) })
+        let publicPart = bind(Choreography.locally(borrowing: secret) { _, secret in .pure(secret.publicPart) })
+        let atBob = bind(Choreography.send(publicPart, to: Bob.self))
+        let answer = bind(Choreography.locally(Bob.self) { reader in .pure(reader(atBob) + "!") })
+        let atAlice = bind(Choreography.send(answer, to: Alice.self))
+        return bind(Choreography.locally(consuming: consume secret) { reader, secret in
+            .pure(secret.finish(with: reader(atAlice)))
+        })
+    }
+}
+
+/// Each member of the pair makes its own secret, they show each other the public parts, and each finishes its own
+/// secret with all of them: the facets are noncopyable, read in place, then used up after a fanIn
+func pairing() -> Freer<Choreography.Within<Everyone>, Faceted<Pair, String>> {
+    #do { bind in
+        let secrets = bind(Choreography.parallel(Pair.self) { facet in .pure(Secret(seed: facet.location.name)) })
+        let publicParts = bind(Choreography.parallel(borrowing: secrets) { _, secret in .pure(secret.publicPart) })
+        let allParts = bind(Choreography.fanIn(publicParts, to: Pair.self))
+        return bind(Choreography.parallel(consuming: consume secrets) { facet, secret in
+            .pure(secret.finish(with: facet(allParts).all.joined(separator: ",")))
+        })
+    }
+}
+
+func runPairing<Me: Location>(as proof: Member<Me, Everyone>, local: Me.Local.Interpreter, hub: Hub) async throws -> Faceted<Pair, String> {
+    let projected = Choreography.project(pairing(), as: proof)
+    let network = InMemoryNetwork(me: Me.name, everyone: Everyone.members.map { $0.name }, hub: hub)
+    return try await projected.run(with: Choreography.Node<Me.Local>.Interpreter(local: local, networking: network))
+}
+
+func runHandshake<Me: Location>(as proof: Member<Me, Everyone>, local: Me.Local.Interpreter, hub: Hub) async throws -> At<Alice, String> {
+    let projected = Choreography.project(handshake(), as: proof)
+    let network = InMemoryNetwork(me: Me.name, everyone: Everyone.members.map { $0.name }, hub: hub)
+    return try await projected.run(with: Choreography.Node<Me.Local>.Interpreter(local: local, networking: network))
+}
+
 @Suite("choreography")
 struct ChoreographyTest {
+    @Test("noncopyable facets are read in place at each member, then used up after a fanIn")
+    func noncopyableFacetsAreReadThenUsedUp() async throws {
+        let hub = Hub()
+        async let alice = runPairing(as: Alice.member(of: Everyone.self), local: aliceLocal, hub: hub)
+        async let bob = runPairing(as: Bob.member(of: Everyone.self), local: bobLocal, hub: hub)
+        async let carol = runPairing(as: Carol.member(of: Everyone.self), local: Direct(), hub: hub)
+
+        let (atAlice, atBob, atCarol) = try await (alice, bob, carol)
+        #expect(Alice.Reader(_unchecked: ())(atAlice) == "alice+ALICE,BOB")
+        #expect(Bob.Reader(_unchecked: ())(atBob) == "bob+ALICE,BOB")
+        #expect(!atCarol.isHeld)
+        #expect(await hub.undelivered() == 0)
+    }
+
+    @Test("a noncopyable value stays at its location, is read in place, and is used up after later sends")
+    func aNoncopyableValueIsReadThenUsedUp() async throws {
+        let hub = Hub()
+        async let alice = runHandshake(as: Alice.member(of: Everyone.self), local: aliceLocal, hub: hub)
+        async let bob = runHandshake(as: Bob.member(of: Everyone.self), local: bobLocal, hub: hub)
+        async let carol = runHandshake(as: Carol.member(of: Everyone.self), local: Direct(), hub: hub)
+
+        let (atAlice, atBob, atCarol) = try await (alice, bob, carol)
+        #expect(atAlice.take() == "s+S!")
+        #expect(!atBob.isHeld)
+        #expect(!atCarol.isHeld)
+        #expect(await hub.undelivered() == 0)
+    }
+
     @Test("a location's name is its type's name, lowercased")
     func aLocationsNameIsItsTypesNameLowercased() {
         #expect(Alice.name == "alice")
@@ -271,21 +352,24 @@ struct ChoreographyTest {
 
     @Test("faceted makes each member's constant its facet")
     func facetedMakesEachMembersConstantItsFacet() async throws {
-        let roles: Freer<Choreography.Family, Faceted<Pair, String>> = Pair.faceted(alice: "first", bob: "second")
+        // a program runs once, so each projection gets its own
+        func roles() -> Freer<Choreography.Family, Faceted<Pair, String>> {
+            Pair.faceted(alice: "first", bob: "second")
+        }
         let hub = Hub()
 
-        let atAlice = try await Choreography.translate(roles, with: Projector<Alice>())
+        let atAlice = try await Choreography.translate(roles(), with: Projector<Alice>())
             .run(with: .init(local: aliceLocal, networking: InMemoryNetwork(me: Alice.name, everyone: [], hub: hub)))
         #expect(Alice.Reader(_unchecked: ())(atAlice) == "first")
 
-        let atBob = try await Choreography.translate(roles, with: Projector<Bob>())
+        let atBob = try await Choreography.translate(roles(), with: Projector<Bob>())
             .run(with: .init(local: bobLocal, networking: InMemoryNetwork(me: Bob.name, everyone: [], hub: hub)))
         #expect(Bob.Reader(_unchecked: ())(atBob) == "second")
     }
 
     @Test("a location's reader reads its own facet")
     func aLocationsReaderReadsItsOwnFacet() {
-        let facets: Faceted<Pair, String> = .init(value: "mine")
+        let facets: Faceted<Pair, String> = .init(value: "mine", at: Bob.self)
         #expect(Bob.Reader(_unchecked: ())(facets) == "mine")
     }
 

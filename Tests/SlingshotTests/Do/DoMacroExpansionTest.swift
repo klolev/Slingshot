@@ -33,6 +33,28 @@ struct DoMacroExpansionTest {
         )
     }
 
+    @Test("a value consumed after a later bind is carried past it")
+    func aValueConsumedAfterALaterBindIsCarriedPastIt() {
+        assertDoExpansion(
+            """
+            #do { bind in
+                let s = bind(start)
+                let r = bind(exchange)
+                return bind(finish(consume s, r))
+            }
+            """,
+            expandedSource: """
+            {
+                return Slingshot._doMonad((start)).flatMap { s in
+                    return Slingshot._doMonad((exchange)).flatMap(carrying: s) { r, s in
+                        return finish(consume s, r)
+                    }
+                }
+            }()
+            """
+        )
+    }
+
     @Test("plain statements between independent binds move after them")
     func plainStatementsBetweenIndependentBindsMoveAfterThem() {
         assertDoExpansion(

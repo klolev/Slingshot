@@ -71,30 +71,6 @@ struct EffectsMacroExpansionTest {
         )
     }
 
-    @Test("an effect can't carry noncopyable values")
-    func anEffectCantCarryNoncopyableValues() {
-        assertEffectsExpansion(
-            """
-            @EffectFamily
-            enum Store {
-                protocol Interpreter {
-                    func keep<V: ~Copyable>(_ value: consuming V)
-                }
-            }
-            """,
-            expandedSource: """
-            enum Store {
-                protocol Interpreter {
-                    func keep<V: ~Copyable>(_ value: consuming V)
-                }
-            }
-            """,
-            diagnostics: [
-                DiagnosticSpec(message: "Freer can't carry noncopyable values: a program keeps results in closures, which can't consume what they capture", line: 4, column: 19),
-            ]
-        )
-    }
-
     @Test("a stack lists its families")
     func aStackListsItsFamilies() {
         assertEffectsExpansion(

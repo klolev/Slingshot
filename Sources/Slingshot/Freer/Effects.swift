@@ -1,20 +1,29 @@
 /// An effect of `Member` lifted into a stack that contains it: it runs with the member's part of the stack's interpreter.
 /// `@Effects` builds these; there's no reason to make one by hand.
-public struct Injected<Stack: EffectStack, Member: EffectFamily, X>: Effect {
+/// An enum, so the effect inside is bound with `switch consume` rather than consumed from a stored property.
+public enum Injected<Stack: EffectStack, Member: EffectFamily, X: ~Copyable>: Effect, ~Copyable {
     public typealias Family = Stack
     public typealias Output = X
 
-    /// The effect itself, for `@Effects`' `hoist` to inject it into another stack
-    public let effect: any Effect<Member, X>
-    let path: KeyPath<Stack.Interpreter, Member.Interpreter>
+    case injected(any Effect<Member, X> & ~Copyable, at: KeyPath<Stack.Interpreter, Member.Interpreter>)
 
-    public init(_ effect: any Effect<Member, X>, at path: KeyPath<Stack.Interpreter, Member.Interpreter>) {
-        self.effect = effect
-        self.path = path
+    public init(_ effect: consuming any Effect<Member, X> & ~Copyable, at path: KeyPath<Stack.Interpreter, Member.Interpreter>) {
+        self = .injected(effect, at: path)
     }
 
-    public func accept(_ interpreter: Stack.Interpreter) async throws -> X {
-        try await effect.accept(interpreter[keyPath: path])
+    /// The effect itself, for `@Effects`' `hoist` to inject it into another stack
+    public consuming func take() -> any Effect<Member, X> & ~Copyable {
+        switch consume self {
+        case .injected(let effect, _):
+            return effect
+        }
+    }
+
+    public consuming func accept(_ interpreter: Stack.Interpreter) async throws -> X {
+        switch consume self {
+        case .injected(let effect, let path):
+            return try await runEffect(effect, as: X.self, with: interpreter[keyPath: path])
+        }
     }
 }
 

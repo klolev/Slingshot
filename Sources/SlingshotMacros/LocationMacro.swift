@@ -48,9 +48,9 @@ public struct LocationMacro: MemberMacro, ExtensionMacro {
             """,
             """
             /// \(raw: name)'s shared program is its own local program: the only member is \(raw: name) itself.
-            \(raw: access)static func lift<L: Slingshot.Location, V>(_ program: Slingshot.Freer<Shared, V>, at member: Slingshot.Member<L, \(raw: name)>) -> Slingshot.Freer<L.Local, V> {
+            \(raw: access)static func lift<L: Slingshot.Location, V: ~Copyable>(_ program: consuming Slingshot.Freer<Shared, V>, at member: Slingshot.Member<L, \(raw: name)>) -> Slingshot.Freer<L.Local, V> {
                 // the proof says L is in the set of just \(raw: name), so L is \(raw: name)
-                program as! Slingshot.Freer<L.Local, V>
+                Slingshot.unsafeReinterpret(program, as: Slingshot.Freer<L.Local, V>.self)
             }
             """,
             """
@@ -66,15 +66,15 @@ public struct LocationMacro: MemberMacro, ExtensionMacro {
             \(raw: access)struct Reader: Slingshot.LocationReader {
                 \(raw: access)init(_unchecked: Void) {}
 
-                \(raw: access)func callAsFunction<V>(_ v: Slingshot.At<\(raw: name), V>) -> V {
+                \(raw: access)func callAsFunction<V: ~Copyable>(_ v: consuming Slingshot.At<\(raw: name), V>) -> V {
                     v.take()
                 }
 
-                \(raw: access)func callAsFunction<S: Includes, V>(_ v: Slingshot.At<S, V>) -> V {
+                \(raw: access)func callAsFunction<S: Includes, V: ~Copyable>(_ v: consuming Slingshot.At<S, V>) -> V {
                     v.take()
                 }
 
-                \(raw: access)func callAsFunction<S: Includes, V>(_ facets: Slingshot.Faceted<S, V>) -> V {
+                \(raw: access)func callAsFunction<S: Includes, V: ~Copyable>(_ facets: consuming Slingshot.Faceted<S, V>) -> V {
                     facets.take()
                 }
             }
@@ -171,7 +171,7 @@ public struct LocationsMacro: MemberMacro {
         let lifts = members.map { member in
             """
                 if L.self == \(member).self {
-                    return Shared.hoist(program, into: \(member).Local.self) as! Slingshot.Freer<L.Local, V>
+                    return Slingshot.unsafeReinterpret(Shared.hoist(program, into: \(member).Local.self), as: Slingshot.Freer<L.Local, V>.self)
                 }
             """
         }.joined(separator: "\n")
@@ -203,7 +203,7 @@ public struct LocationsMacro: MemberMacro {
             """
             /// A program in \(raw: name)'s shared effects, as the local program of the member running it.
             /// Only compiles when each member's `Local` has all of `Shared`'s families.
-            \(raw: access)static func lift<L: Slingshot.Location, V>(_ program: Slingshot.Freer<Shared, V>, at member: Slingshot.Member<L, \(raw: name)>) -> Slingshot.Freer<L.Local, V> {
+            \(raw: access)static func lift<L: Slingshot.Location, V: ~Copyable>(_ program: consuming Slingshot.Freer<Shared, V>, at member: Slingshot.Member<L, \(raw: name)>) -> Slingshot.Freer<L.Local, V> {
             \(raw: lifts)
                 preconditionFailure("\\(L.self) has a proof of membership in \(raw: name) without being one of its members")
             }
