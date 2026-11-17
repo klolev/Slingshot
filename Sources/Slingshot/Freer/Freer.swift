@@ -73,7 +73,9 @@ public protocol FreerStep<Family, A>: ~Copyable {
     associatedtype Family: EffectFamily
     associatedtype A: ~Copyable
 
-    consuming func run(with interpreter: Family.Interpreter) async throws -> A
+    /// Runs this step's effect or sub-program, and returns the rest of the program instead of running it:
+    /// `Freer.run` loops over steps, so a long or recursive program runs at constant depth
+    consuming func advance(with interpreter: Family.Interpreter) async throws -> Freer<Family, A>
     consuming func flatMap<B: ~Copyable>(_ transform: @escaping (consuming A) -> Freer<Family, B>) -> any FreerStep<Family, B> & ~Copyable
     consuming func translate<T: Translation>(_ translation: T) -> Freer<T.To, A> where T.From == Family
 }
@@ -102,11 +104,11 @@ where E.Output: ~Copyable {
 public enum Bind<Family: EffectFamily, X: ~Copyable, A: ~Copyable>: FreerStep, ~Copyable {
     case bind(any Effect<Family, X> & ~Copyable, next: (consuming X) -> Freer<Family, A>)
 
-    public consuming func run(with interpreter: Family.Interpreter) async throws -> A {
+    public consuming func advance(with interpreter: Family.Interpreter) async throws -> Freer<Family, A> {
         switch consume self {
         case .bind(let effect, let next):
             let x = try await runEffect(effect, as: X.self, with: interpreter)
-            return try await next(x).run(with: interpreter)
+            return next(x)
         }
     }
 
@@ -131,11 +133,12 @@ public enum Bind<Family: EffectFamily, X: ~Copyable, A: ~Copyable>: FreerStep, ~
 enum Then<Family: EffectFamily, X: ~Copyable, A: ~Copyable>: FreerStep, ~Copyable {
     case then(Freer<Family, X>, next: (consuming X) -> Freer<Family, A>)
 
-    consuming func run(with interpreter: Family.Interpreter) async throws -> A {
+    consuming func advance(with interpreter: Family.Interpreter) async throws -> Freer<Family, A> {
         switch consume self {
         case .then(let first, let next):
+            // one level deeper for the sub-program, which itself runs as a loop
             let x = try await first.run(with: interpreter)
-            return try await next(x).run(with: interpreter)
+            return next(x)
         }
     }
 
@@ -159,11 +162,11 @@ enum Then<Family: EffectFamily, X: ~Copyable, A: ~Copyable>: FreerStep, ~Copyabl
 enum Carrying<Family: EffectFamily, X: ~Copyable, Carried: ~Copyable, A: ~Copyable>: FreerStep, ~Copyable {
     case carrying(Freer<Family, X>, Carried, next: (consuming X, consuming Carried) -> Freer<Family, A>)
 
-    consuming func run(with interpreter: Family.Interpreter) async throws -> A {
+    consuming func advance(with interpreter: Family.Interpreter) async throws -> Freer<Family, A> {
         switch consume self {
         case .carrying(let first, let carried, let next):
             let x = try await first.run(with: interpreter)
-            return try await next(x, carried).run(with: interpreter)
+            return next(x, carried)
         }
     }
 
@@ -222,14 +225,20 @@ public extension Freer where A: ~Copyable {
         .step(Bind<Family, A, A>.bind(effect, next: { .pure($0) }))
     }
 
+    /// Runs the program as a loop over its steps: each step returns the rest of the program instead of running it,
+    /// so sequential binds and recursion, like a retry that calls itself, run at constant depth.
+    /// Only a sub-program (a `both`'s sides, what a `Then` or a carrying step waits for) runs one level deeper.
     consuming func run(with interpreter: Family.Interpreter) async throws -> A {
-        switch consume self {
-        case .pure(let a):
-            return a
-        case .step(let step):
-            return try await step.run(with: interpreter)
-        case .both(let both):
-            return try await both.run(with: interpreter)
+        var current = consume self
+        while true {
+            switch consume current {
+            case .pure(let a):
+                return a
+            case .step(let step):
+                current = try await step.advance(with: interpreter)
+            case .both(let both):
+                current = .pure(try await both.run(with: interpreter))
+            }
         }
     }
 

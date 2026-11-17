@@ -60,6 +60,29 @@ fileprivate func observe(_ program: consuming Program) async throws -> Observati
     return Observation(result: result, effects: tape.log)
 }
 
+/// Counts emits without keeping them: for programs too long to log
+fileprivate final class EmitCounter: Emits.Interpreter {
+    var count = 0
+
+    func emit(_ value: Int) async throws -> Int {
+        count += 1
+        return value
+    }
+}
+
+/// n emits in a row, built by recursion in the continuation: the shape of a retry that calls itself
+fileprivate func countdown(_ n: Int) -> Program {
+    n == 0 ? .pure(0) : Emits.emit(n).flatMap { _ in countdown(n - 1) }
+}
+
+/// The same recursion, carrying a noncopyable value through every step and consuming it at the end
+fileprivate func countdown(_ n: Int, carrying token: consuming Token) -> Program {
+    if n == 0 {
+        return .pure(spend(token))
+    }
+    return Emits.emit(n).flatMap(carrying: token) { _, token in countdown(n - 1, carrying: token) }
+}
+
 @Suite("freer laws")
 struct FreerLawsTest {
     // MARK: Monad
@@ -182,6 +205,32 @@ struct FreerLawsTest {
         #expect(two == Observation(result: 312, effects: [3]))
         let three = try await observe(m().map(carrying: 1, 2, 3) { x, a, b, c in x * 1000 + a * 100 + b * 10 + c })
         #expect(three == Observation(result: 3123, effects: [3]))
+    }
+
+    // MARK: Depth
+
+    @Test("a long recursive program runs to the end: run loops instead of nesting")
+    func longRecursiveProgramsRun() async throws {
+        let counter = EmitCounter()
+        let result = try await countdown(100_000).run(with: counter)
+        #expect(result == 0)
+        #expect(counter.count == 100_000)
+    }
+
+    @Test("a long recursive program that carries a value runs to the end")
+    func longCarryingProgramsRun() async throws {
+        let counter = EmitCounter()
+        let result = try await countdown(100_000, carrying: Token(value: 42)).run(with: counter)
+        #expect(result == 42)
+        #expect(counter.count == 100_000)
+    }
+
+    @Test("a long recursive program runs to the end after translation")
+    func longTranslatedProgramsRun() async throws {
+        let counter = EmitCounter()
+        let result = try await translated(countdown(100_000)).run(with: counter)
+        #expect(result == 0)
+        #expect(counter.count == 100_000)
     }
 
     // MARK: Translation is a monad morphism
