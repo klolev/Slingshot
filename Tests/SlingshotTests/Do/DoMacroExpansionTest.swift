@@ -293,6 +293,30 @@ struct DoMacroExpansionTest {
         )
     }
 
+    @Test("return if returns from each branch")
+    func returnIfReturnsFromEachBranch() {
+        assertDoExpansion(
+            """
+            #do { bind in
+                return if c {
+                    bind(x)
+                } else {
+                    0
+                }
+            }
+            """,
+            expandedSource: """
+            {
+                if c {
+                    return x
+                } else {
+                    return .pure(0)
+                }
+            }()
+            """
+        )
+    }
+
     @Test("a bound condition can't have a type")
     func aBoundConditionCantHaveAType() {
         assertDoExpansion(
