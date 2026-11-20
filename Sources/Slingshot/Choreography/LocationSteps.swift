@@ -68,3 +68,72 @@ public extension LocationSet {
         Choreography.congruently(Self.self, body)
     }
 }
+
+// Local steps driven by the value they work on: its type already says where it's held.
+//
+//     let publicPart = bind(secret.reading { s in .pure(s.publicPart) })
+//     let finished = bind((consume secret).using { s, reader in .pure(s.finish(with: reader(answer))) })
+//
+// `reading` leaves the value in place and `using` takes it. Each comes with or without the reader (or, for facets,
+// the facet), told apart by the closure's parameters. Like `locally(consuming:)`, the body runs when the
+// choreography reaches the step, only where the value is held: keep it to computing, and put effects in the program it returns.
+
+public extension At where S: Location, Value: ~Copyable {
+    /// Runs local code where the value is held, reading it in place: `Choreography.locally(borrowing:_:)`
+    borrowing func reading<Effs: Choreography.Has, Output: ~Copyable>(
+        _ body: (borrowing Value) throws -> Freer<S.Local, Output>
+    ) -> Freer<Effs, At<S, Output>> {
+        Choreography.locally(borrowing: self) { _, value in try body(value) }
+    }
+
+    /// Runs local code where the value is held, reading it in place, with the location's reader for other values
+    borrowing func reading<Effs: Choreography.Has, Output: ~Copyable>(
+        _ body: (borrowing Value, S.Reader) throws -> Freer<S.Local, Output>
+    ) -> Freer<Effs, At<S, Output>> {
+        Choreography.locally(borrowing: self) { reader, value in try body(value, reader) }
+    }
+
+    /// Runs local code where the value is held, taking it: `Choreography.locally(consuming:_:)`
+    consuming func using<Effs: Choreography.Has, Output: ~Copyable>(
+        _ body: (consuming Value) throws -> Freer<S.Local, Output>
+    ) -> Freer<Effs, At<S, Output>> {
+        Choreography.locally(consuming: self) { _, value in try body(value) }
+    }
+
+    /// Runs local code where the value is held, taking it, with the location's reader for other values
+    consuming func using<Effs: Choreography.Has, Output: ~Copyable>(
+        _ body: (consuming Value, S.Reader) throws -> Freer<S.Local, Output>
+    ) -> Freer<Effs, At<S, Output>> {
+        Choreography.locally(consuming: self) { reader, value in try body(value, reader) }
+    }
+}
+
+public extension Faceted where Value: ~Copyable {
+    /// Runs the same local code at every member, reading its facet in place: `Choreography.parallel(borrowing:_:)`
+    borrowing func reading<Effs: Choreography.Has, Output: ~Copyable>(
+        _ body: (borrowing Value) throws -> Freer<S.Shared, Output>
+    ) -> Freer<Effs, Faceted<S, Output>> {
+        Choreography.parallel(borrowing: self) { _, value in try body(value) }
+    }
+
+    /// Runs the same local code at every member, reading its facet in place, with the member's `Facet` for other values
+    borrowing func reading<Effs: Choreography.Has, Output: ~Copyable>(
+        _ body: (borrowing Value, Facet<S>) throws -> Freer<S.Shared, Output>
+    ) -> Freer<Effs, Faceted<S, Output>> {
+        Choreography.parallel(borrowing: self) { facet, value in try body(value, facet) }
+    }
+
+    /// Runs the same local code at every member, taking its facet: `Choreography.parallel(consuming:_:)`
+    consuming func using<Effs: Choreography.Has, Output: ~Copyable>(
+        _ body: (consuming Value) throws -> Freer<S.Shared, Output>
+    ) -> Freer<Effs, Faceted<S, Output>> {
+        Choreography.parallel(consuming: self) { _, value in try body(value) }
+    }
+
+    /// Runs the same local code at every member, taking its facet, with the member's `Facet` for other values
+    consuming func using<Effs: Choreography.Has, Output: ~Copyable>(
+        _ body: (consuming Value, Facet<S>) throws -> Freer<S.Shared, Output>
+    ) -> Freer<Effs, Faceted<S, Output>> {
+        Choreography.parallel(consuming: self) { facet, value in try body(value, facet) }
+    }
+}
