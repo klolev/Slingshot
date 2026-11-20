@@ -164,12 +164,20 @@ public extension Faceted where Value: Codable & Sendable {
     func fanIn<Effs: Choreography.Has, Receivers: LocationSet>(to receivers: Receivers.Type) -> Freer<Effs, At<Receivers, Quire<S, Value>>> {
         Choreography.fanIn(self, to: receivers)
     }
+
+    /// Sends every member's facet to every other member, so they all hold all of them: `fanIn(to: S.self)`
+    ///
+    ///     let allParts = bind(publicParts.fanIn())
+    func fanIn<Effs: Choreography.Has>() -> Freer<Effs, At<S, Quire<S, Value>>> {
+        fanIn(to: S.self)
+    }
 }
 
 // A local step that only prepares a value for others, sent on as soon as it's made:
 //
 //     let atBob = bind(secret.reading { secret in .pure(secret.publicPart) }.send(to: Bob.self))
-//     let allParts = bind(secrets.reading { secret in .pure(secret.publicPart) }.fanIn(to: Pair.self))
+//     let allParts = bind(secrets.reading { secret in .pure(secret.publicPart) }.fanIn())
+//     let plain = bind(reply.send(to: Everyone.self).naked())
 
 public extension Freer where Family: Choreography.Has {
     /// Sends the value this step makes to every location in `receivers`, once it's made
@@ -184,5 +192,19 @@ public extension Freer where Family: Choreography.Has {
         to receivers: Receivers.Type
     ) -> Freer<Family, At<Receivers, Quire<S, V>>> where A == Faceted<S, V> {
         flatMap { made in made.fanIn(to: receivers) }
+    }
+
+    /// Sends every member's facet this step makes to every other member, once they're made: `fanIn(to: S.self)`
+    consuming func fanIn<S: LocationSet, V: Codable & Sendable>() -> Freer<Family, At<S, Quire<S, V>>> where A == Faceted<S, V> {
+        flatMap { made in made.fanIn() }
+    }
+}
+
+public extension Freer {
+    /// The value this step makes as a plain one, when the whole census holds it: `Choreography.naked`
+    ///
+    ///     if let session = await responderJoin().naked() { … }
+    consuming func naked<S: LocationSet, V>() -> Freer<Family, V> where Family == Choreography.Within<S>, A == At<S, V> {
+        flatMap { made in made.naked() }
     }
 }

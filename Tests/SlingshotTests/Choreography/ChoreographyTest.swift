@@ -209,7 +209,7 @@ func handshake() -> Freer<Choreography.Within<Everyone>, At<Alice, String>> {
 func pairing() -> Freer<Choreography.Within<Everyone>, Faceted<Pair, String>> {
     #do { bind in
         let secrets = bind(Pair.parallel { facet in .pure(Secret(seed: facet.location.name)) })
-        let allParts = bind(secrets.reading { secret in .pure(secret.publicPart) }.fanIn(to: Pair.self))
+        let allParts = bind(secrets.reading { secret in .pure(secret.publicPart) }.fanIn())
         return bind((consume secrets).using { secret, facet in
             // each finishes with its peer's part
             .pure(secret.finish(with: facet.others(facet(allParts)).joined(separator: ",")))
@@ -226,9 +226,8 @@ func alicesPart() -> Freer<Choreography.Within<Everyone>, At<Everyone, String>> 
         let suffix = bind(Bob.constant("?"))
         let atAlice = bind(Choreography.send(suffix, to: Alice.self))
         let asked = bind(Alice.locally { reader in .pure(reader(part) + reader(atAlice)) })
-        let told = bind(asked.send(to: Everyone.self))
-        // everyone holds it, so it's a plain value
-        let plain = bind(told.naked())
+        // everyone holds it once it's sent, so it's a plain value
+        let plain = bind(asked.send(to: Everyone.self).naked())
         return bind(Everyone.congruently { _ in plain })
     }
 }
