@@ -165,3 +165,24 @@ public extension Faceted where Value: Codable & Sendable {
         Choreography.fanIn(self, to: receivers)
     }
 }
+
+// A local step that only prepares a value for others, sent on as soon as it's made:
+//
+//     let atBob = bind(secret.reading { secret in .pure(secret.publicPart) }.send(to: Bob.self))
+//     let allParts = bind(secrets.reading { secret in .pure(secret.publicPart) }.fanIn(to: Pair.self))
+
+public extension Freer where Family: Choreography.Has {
+    /// Sends the value this step makes to every location in `receivers`, once it's made
+    consuming func send<L: Location, V: Codable & Sendable, Receivers: LocationSet>(
+        to receivers: Receivers.Type
+    ) -> Freer<Family, At<Receivers, V>> where A == At<L, V> {
+        flatMap { made in made.send(to: receivers) }
+    }
+
+    /// Sends every member's facet this step makes to every location in `receivers`, once they're made
+    consuming func fanIn<S: LocationSet, V: Codable & Sendable, Receivers: LocationSet>(
+        to receivers: Receivers.Type
+    ) -> Freer<Family, At<Receivers, Quire<S, V>>> where A == Faceted<S, V> {
+        flatMap { made in made.fanIn(to: receivers) }
+    }
+}
