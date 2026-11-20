@@ -882,7 +882,12 @@ public struct DoBodyMacro: BodyMacro {
             throw error("@Do rewrites a function's body: give the function one", at: node)
         }
         DoMacro.warnAboutUnboundSteps(in: body.statements, marker: .await, context: context)
-        let statements = try DoMacro.expandNested(body.statements, in: context, at: body)
+        var statements = try DoMacro.expandNested(body.statements, in: context, at: body)
+        // a step whose value is Void can end without a return, like a function returning Void
+        if returnsVoid(declaration), !(statements.last.map { allPathsReturn($0) } ?? false) {
+            let end: CodeBlockItemListSyntax = "return"
+            statements = CodeBlockItemListSyntax(Array(statements) + Array(end))
+        }
         let source = switch try DoMacro.desugarBlock(statements, marker: .await, name: "@Do") {
         case .pure(let value): "return .pure(\(value))"
         case .program(let desugared): desugared
@@ -890,6 +895,16 @@ public struct DoBodyMacro: BodyMacro {
         let file: SourceFileSyntax = "\(raw: source)"
         return Array(file.statements)
     }
+}
+
+/// Whether the function's return type ends in `Void`, like `Freer<App, Void>` or `Join<()>`: the macro can't
+/// see through type aliases, so it goes by the last generic argument as written
+private func returnsVoid(_ declaration: some DeclSyntaxProtocol) -> Bool {
+    guard let type = declaration.as(FunctionDeclSyntax.self)?.signature.returnClause?.type else { return false }
+    let arguments = type.as(IdentifierTypeSyntax.self)?.genericArgumentClause?.arguments
+        ?? type.as(MemberTypeSyntax.self)?.genericArgumentClause?.arguments
+    guard let last = arguments?.last else { return false }
+    return ["Void", "()", "Swift.Void"].contains(last.trimmedDescription)
 }
 
 private extension SyntaxProtocol {

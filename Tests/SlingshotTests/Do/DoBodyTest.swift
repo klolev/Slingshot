@@ -218,8 +218,20 @@ fileprivate func peekedFirst() -> Freer<Tickets.Family, String> {
     return b
 }
 
+/// A Void step ends without a return
+@Do
+fileprivate func justPeeked() -> Freer<Tickets.Family, Void> {
+    let label = await Tickets.peek("a")
+    await Tickets.peek(label + "b")
+}
+
 @Suite("@Do")
 struct DoBodyTest {
+    @Test("a Void body ends without a return")
+    func voidBodyEndsWithoutAReturn() async throws {
+        try await justPeeked().run(with: Office())
+    }
+
     @Test("a bare await runs its step and drops the value")
     func bareAwait() async throws {
         let result = try await peekedFirst().run(with: Office())
