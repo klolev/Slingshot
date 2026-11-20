@@ -197,9 +197,9 @@ func handshake() -> Freer<Choreography.Within<Everyone>, At<Alice, String>> {
         let secret = bind(Alice.locally { _ in .pure(Secret(seed: "s")) })
         // the value drives the step: it's held at Alice, so that's where it runs
         let publicPart = bind(secret.reading { secret in .pure(secret.publicPart) })
-        let atBob = bind(Choreography.send(publicPart, to: Bob.self))
+        let atBob = bind(publicPart.send(to: Bob.self))
         let answer = bind(Bob.locally { reader in .pure(reader(atBob) + "!") })
-        let atAlice = bind(Choreography.send(answer, to: Alice.self))
+        let atAlice = bind(answer.send(to: Alice.self))
         return bind((consume secret).using { secret, reader in
             .pure(secret.finish(with: reader(atAlice)))
         })
@@ -212,7 +212,7 @@ func pairing() -> Freer<Choreography.Within<Everyone>, Faceted<Pair, String>> {
     #do { bind in
         let secrets = bind(Pair.parallel { facet in .pure(Secret(seed: facet.location.name)) })
         let publicParts = bind(secrets.reading { secret in .pure(secret.publicPart) })
-        let allParts = bind(Choreography.fanIn(publicParts, to: Pair.self))
+        let allParts = bind(publicParts.fanIn(to: Pair.self))
         return bind((consume secrets).using { secret, facet in
             // each finishes with its peer's part
             .pure(secret.finish(with: facet.others(facet(allParts)).joined(separator: ",")))
@@ -229,8 +229,10 @@ func alicesPart() -> Freer<Choreography.Within<Everyone>, At<Everyone, String>> 
         let suffix = bind(Bob.constant("?"))
         let atAlice = bind(Choreography.send(suffix, to: Alice.self))
         let asked = bind(Alice.locally { reader in .pure(reader(part) + reader(atAlice)) })
-        let told = bind(Choreography.send(asked, to: Everyone.self))
-        return bind(Everyone.congruently { all in all(told) })
+        let told = bind(asked.send(to: Everyone.self))
+        // everyone holds it, so it's a plain value
+        let plain = bind(told.naked())
+        return bind(Everyone.congruently { _ in plain })
     }
 }
 
