@@ -365,6 +365,52 @@ struct DoMacroExpansionTest {
         )
     }
 
+    @Test("returning a step without binding it warns")
+    func returningAStepWithoutBindingItWarns() {
+        assertDoExpansion(
+            """
+            #do { bind in
+                let n = bind(x)
+                return y.send(to: Bob.self)
+            }
+            """,
+            expandedSource: """
+            {
+                return (x).map { n in
+                    return y.send(to: Bob.self)
+                }
+            }()
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "`send` makes a step, which this returns as a plain value: write `return bind(…)` to run it",
+                               line: 3, column: 12, severity: .warning, fixIts: [FixItSpec(message: "Bind it with bind")]),
+            ]
+        )
+    }
+
+    @Test("returning pure warns, since the block wraps what it returns")
+    func returningPureWarns() {
+        assertDoExpansion(
+            """
+            #do { bind in
+                let n = bind(x)
+                return .pure(n)
+            }
+            """,
+            expandedSource: """
+            {
+                return (x).map { n in
+                    return .pure(n)
+                }
+            }()
+            """,
+            diagnostics: [
+                DiagnosticSpec(message: "the block already wraps what it returns in `pure`: return the value itself",
+                               line: 3, column: 12, severity: .warning, fixIts: [FixItSpec(message: "Return the value itself")]),
+            ]
+        )
+    }
+
     @Test("the binder has to be named")
     func theBinderHasToBeNamed() {
         assertDoExpansion(

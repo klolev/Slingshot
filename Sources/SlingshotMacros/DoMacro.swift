@@ -23,6 +23,7 @@ public struct DoMacro: ExpressionMacro {
         guard let binder = binderName(of: closure) else {
             throw error("name the closure's parameter, then bind with it: #do { bind in let x = bind(m) ... }", at: closure)
         }
+        warnAboutUnboundSteps(in: closure.statements, marker: .call(binder), context: context)
         // Nested blocks are expanded here first: Swift won't expand a macro whose expansion contains itself,
         // and once they're expanded, their binds can't be mistaken for this block's
         let body = try expandNested(closure.statements, in: context, at: closure)
@@ -31,6 +32,33 @@ public struct DoMacro: ExpressionMacro {
             return "\(raw: ".pure(\(value))")"
         case .program(let desugared):
             return "\(raw: "{\n\(desugared)\n}()")"
+        }
+    }
+
+    /// Warns about a `return` of what looks like a step without its bind: the block wraps what it returns as a value,
+    /// so the step would never run, and the compiler's own error, about the expansion, doesn't say why.
+    /// The macro can't see types, so this only knows Slingshot's own steps by name.
+    static func warnAboutUnboundSteps(in statements: CodeBlockItemListSyntax, marker: BindMarker, context: some MacroExpansionContext) {
+        let finder = UnboundStepFinder(marker: marker)
+        finder.walk(statements)
+        for (value, kind) in finder.found {
+            switch kind {
+            case .step(let name):
+                let bound = marker.bind(value)
+                context.diagnose(Diagnostic(
+                    node: value,
+                    message: DoWarning(message: "`\(name)` makes a step, which this returns as a plain value: write `return \(marker.example)` to run it"),
+                    fixIt: FixIt(message: DoFixIt(message: "Bind it with \(marker.keyword)"),
+                                 changes: [.replace(oldNode: Syntax(value), newNode: Syntax(ExprSyntax("\(raw: bound)")).with(\.leadingTrivia, value.leadingTrivia).with(\.trailingTrivia, value.trailingTrivia))])
+                ))
+            case .pure(let argument):
+                context.diagnose(Diagnostic(
+                    node: value,
+                    message: DoWarning(message: "the block already wraps what it returns in `pure`: return the value itself"),
+                    fixIt: FixIt(message: DoFixIt(message: "Return the value itself"),
+                                 changes: [.replace(oldNode: Syntax(value), newNode: Syntax(argument).with(\.leadingTrivia, value.leadingTrivia).with(\.trailingTrivia, value.trailingTrivia))])
+                ))
+            }
         }
     }
 
@@ -754,6 +782,22 @@ enum BindMarker {
         }
     }
 
+    /// A bind as the block writes it, for messages: `bind(…)` or `await …`
+    var example: String {
+        switch self {
+        case .call(let binder): "\(binder)(…)"
+        case .await: "await …"
+        }
+    }
+
+    /// What binds, for messages: `bind` or `await`
+    var keyword: String {
+        switch self {
+        case .call(let binder): binder
+        case .await: "await"
+        }
+    }
+
     /// `m` as a bind, written the way the block writes its binds
     func bind(_ program: ExprSyntax) -> String {
         switch self {
@@ -825,6 +869,7 @@ public struct DoBodyMacro: BodyMacro {
         guard let body = declaration.body else {
             throw error("@Do rewrites a function's body: give the function one", at: node)
         }
+        DoMacro.warnAboutUnboundSteps(in: body.statements, marker: .await, context: context)
         let statements = try DoMacro.expandNested(body.statements, in: context, at: body)
         let source = switch try DoMacro.desugarBlock(statements, marker: .await, name: "@Do") {
         case .pure(let value): "return .pure(\(value))"
@@ -889,6 +934,109 @@ private final class ReturnFinder: SyntaxVisitor {
     override func visit(_ node: AccessorBlockSyntax) -> SyntaxVisitorContinueKind {
         .skipChildren
     }
+}
+
+/// The values a block returns that look like Slingshot steps or `.pure(…)`, outside closures and nested functions:
+/// a plain `return`'s value, and each branch's value in `return if …` and `return switch …`
+private final class UnboundStepFinder: SyntaxVisitor {
+    enum Kind {
+        case step(String)
+        case pure(ExprSyntax)
+    }
+
+    /// Slingshot's steps, by the name of the call that makes them
+    static let steps: Set<String> = [
+        "locally", "parallel", "congruently", "constant", "send", "fanIn", "naked", "reading", "using", "conclave", "branch",
+    ]
+
+    let marker: BindMarker
+    var found: [(ExprSyntax, Kind)] = []
+
+    init(marker: BindMarker) {
+        self.marker = marker
+        super.init(viewMode: .sourceAccurate)
+    }
+
+    override func visit(_ node: ReturnStmtSyntax) -> SyntaxVisitorContinueKind {
+        if let value = node.expression {
+            check(value)
+        }
+        return .visitChildren
+    }
+
+    private func check(_ value: ExprSyntax) {
+        if marker.argument(of: value) != nil {
+            return
+        }
+        switch Branch(value) {
+        case .conditional(let conditional):
+            check(conditional)
+        case .switching(let switching):
+            for element in switching.cases {
+                if let last = element.as(SwitchCaseSyntax.self)?.statements.last, let expression = Self.expression(of: last) {
+                    check(expression)
+                }
+            }
+        case nil:
+            if let kind = Self.kind(of: value) {
+                found.append((value, kind))
+            }
+        }
+    }
+
+    private func check(_ conditional: IfExprSyntax) {
+        if let last = conditional.body.statements.last, let expression = Self.expression(of: last) {
+            check(expression)
+        }
+        switch conditional.elseBody {
+        case .ifExpr(let nested):
+            check(nested)
+        case .codeBlock(let block):
+            if let last = block.statements.last, let expression = Self.expression(of: last) {
+                check(expression)
+            }
+        case nil:
+            break
+        }
+    }
+
+    private static func expression(of item: CodeBlockItemSyntax) -> ExprSyntax? {
+        item.item.as(ExpressionStmtSyntax.self)?.expression ?? item.item.as(ExprSyntax.self)
+    }
+
+    private static func kind(of value: ExprSyntax) -> Kind? {
+        guard let call = value.as(FunctionCallExprSyntax.self),
+              let member = call.calledExpression.as(MemberAccessExprSyntax.self) else {
+            return nil
+        }
+        let name = member.declName.baseName.text
+        if name == "pure", call.arguments.count == 1, let argument = call.arguments.first, argument.label == nil {
+            return .pure(argument.expression)
+        }
+        if steps.contains(name) {
+            return .step(name)
+        }
+        // Embedding.run makes a step; other `run`s, like a program's, are async calls
+        if name == "run", member.base?.trimmedDescription.hasSuffix("Embedding") == true {
+            return .step("Embedding.run")
+        }
+        return nil
+    }
+
+    override func visit(_ node: ClosureExprSyntax) -> SyntaxVisitorContinueKind { .skipChildren }
+    override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind { .skipChildren }
+    override func visit(_ node: AccessorBlockSyntax) -> SyntaxVisitorContinueKind { .skipChildren }
+}
+
+private struct DoWarning: DiagnosticMessage {
+    let message: String
+    var diagnosticID: MessageID { MessageID(domain: "Slingshot", id: "do.unbound") }
+    var severity: DiagnosticSeverity { .warning }
+}
+
+private struct DoFixIt: FixItMessage {
+    let message: String
+    var fixItID: MessageID { MessageID(domain: "Slingshot", id: "do.bind") }
 }
 
 private struct DoMessage: DiagnosticMessage {
