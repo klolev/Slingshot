@@ -221,6 +221,12 @@ public struct LocationsMacro: MemberMacro {
             }
             """,
             """
+            /// Each member's proof of membership, by name: a `Quire<\(raw: name), V>` reads \(raw: labels.map { "`quire.\($0)`" }.joined(separator: ", ")).
+            \(raw: access)struct Members {
+            \(raw: zip(members, labels).map { "    \(access)var `\($1)`: Slingshot.Member<\($0), \(name)> { Slingshot.Member(_unchecked: ()) }" }.joined(separator: "\n"))
+            }
+            """,
+            """
             /// The locations in the set, for projection to send to each of them.
             \(raw: access)static let members: [any Slingshot.Location.Type] = [\(raw: members.map { "\($0).self" }.joined(separator: ", "))]
             """,

@@ -411,6 +411,26 @@ struct DoMacroExpansionTest {
         )
     }
 
+    @Test("a bind on its own drops its value")
+    func aBindOnItsOwnDropsItsValue() {
+        assertDoExpansion(
+            """
+            #do { bind in
+                bind(x)
+                return 1
+            }
+            """,
+            expandedSource: """
+            {
+                return (x).map { __doBound1 in
+                    let _ = __doBound1
+                    return 1
+                }
+            }()
+            """
+        )
+    }
+
     @Test("the binder has to be named")
     func theBinderHasToBeNamed() {
         assertDoExpansion(

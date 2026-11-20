@@ -210,8 +210,22 @@ fileprivate func named(_ text: String) -> String? {
     }
 }
 
+/// A step whose value isn't needed is awaited on its own
+@Do
+fileprivate func peekedFirst() -> Freer<Tickets.Family, String> {
+    await Tickets.peek("a")
+    let b = await Tickets.peek("b")
+    return b
+}
+
 @Suite("@Do")
 struct DoBodyTest {
+    @Test("a bare await runs its step and drops the value")
+    func bareAwait() async throws {
+        let result = try await peekedFirst().run(with: Office())
+        #expect(result == "b")
+    }
+
     @Test("return if returns the taken branch's value")
     func returnIf() {
         #expect(tripled("2") == 6)

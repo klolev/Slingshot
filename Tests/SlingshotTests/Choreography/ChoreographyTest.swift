@@ -150,7 +150,8 @@ func exchange() -> Freer<Choreography.Within<Everyone>, At<Pair, String>> {
         let everyWord = bind(Choreography.fanIn(words, to: Pair.self))
         return bind(Choreography.congruently(Pair.self) { pair in
             let quire = pair(everyWord)
-            return quire[Alice.member(of: Pair.self)] + "+" + quire[Bob.member(of: Pair.self)]
+            // by name, as @Locations generates, or with a proof
+            return quire.alice + "+" + quire[Bob.member(of: Pair.self)]
         })
     }
 }

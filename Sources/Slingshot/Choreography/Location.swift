@@ -10,9 +10,16 @@ public protocol LocationSet: Sendable {
     /// `typealias Shared = PeerShared`
     associatedtype Shared: EffectStack
 
+    /// Each member's membership proof as a property named after it, so a `Quire<Self, V>` reads `quire.initiator`.
+    /// `@Locations` generates it; a set declared by hand reads its quires with proofs.
+    associatedtype Members = NoMembers
+
     /// A program in the set's shared effects, as one of its members' local program.
     static func lift<L: Location, V: ~Copyable>(_ program: consuming Freer<Shared, V>, at member: Member<L, Self>) -> Freer<L.Local, V>
 }
+
+/// The `Members` of a set that doesn't name its members: its quires are read with membership proofs
+public struct NoMembers {}
 
 public extension LocationSet {
     static func contains(_ location: any Location.Type) -> Bool {
@@ -98,7 +105,7 @@ public macro Location() = #externalMacro(module: "SlingshotMacros", type: "Locat
 ///
 ///     let ids: Faceted<Peers, SessionID> = Peers.faceted(initiator: fromCreated, responder: fromJoined)
 ///     let roles = bind(Peers.faceted(initiator: Role.initiator, responder: .responder))
-@attached(member, names: named(members), named(subset), named(Shared), named(lift), named(SharedIsAnEffectStack), named(faceted))
+@attached(member, names: named(members), named(subset), named(Shared), named(lift), named(SharedIsAnEffectStack), named(faceted), named(Members))
 public macro Locations() = #externalMacro(module: "SlingshotMacros", type: "LocationsMacro")
 #endif
 

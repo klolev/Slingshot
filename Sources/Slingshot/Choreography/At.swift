@@ -67,11 +67,19 @@ extension At where Value: ~Copyable {
 }
 
 /// Every location of `S`'s facet, gathered by `fanIn`: one value per member.
+/// Every member of `S`'s facet, gathered by `fanIn`. Read one by the member's name, `nonces.initiator`, or with
+/// a membership proof, `nonces[Initiator.member(of: Peers.self)]`.
+@dynamicMemberLookup
 public struct Quire<S: LocationSet, Value> {
     var values: [String: Value]
 
     /// The facet of one member: the proof makes asking for a non-member a compile error
     public subscript<L: Location>(_ member: Member<L, S>) -> Value {
+        values[L.name]!
+    }
+
+    /// The facet of the member named like a property of `S.Members`, which `@Locations` generates
+    public subscript<L: Location>(dynamicMember member: KeyPath<S.Members, Member<L, S>>) -> Value {
         values[L.name]!
     }
 

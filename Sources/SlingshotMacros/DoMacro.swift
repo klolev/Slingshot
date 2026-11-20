@@ -78,7 +78,7 @@ public struct DoMacro: ExpressionMacro {
             return .pure("{\n\(body.trimmedDescription)\n}()")
         }
         if let last = statements.last, case .bind(let bind) = last {
-            throw error("\(name) must end with a return", at: bind.statement)
+            throw error("\(name) must end with a return", at: bind.node)
         }
         var names = Names()
         // Noncopyable values the block consumes with `consume name`: carried through the program to that point
@@ -200,7 +200,7 @@ public struct DoMacro: ExpressionMacro {
         let consumedLater = Set((deferred + rest).flatMap(\.consumedNames))
         let carried = owned.intersection(declaredBefore).intersection(consumedLater).subtracting(boundHere).sorted()
         guard carried.count <= 3 else {
-            throw error("\(carried.joined(separator: ", ")) are all consumed after this bind: #do can carry at most 3 values past one, so consume some sooner", at: segment[0].statement)
+            throw error("\(carried.joined(separator: ", ")) are all consumed after this bind: #do can carry at most 3 values past one, so consume some sooner", at: segment[0].node)
         }
 
         var combined = segment.dropFirst().reduce("(\(segment[0].expression.trimmedDescription))") { combined, bind in
@@ -483,6 +483,8 @@ private struct Bind {
     let statement: VariableDeclSyntax
     let binding: PatternBindingSyntax
     let expression: ExprSyntax
+    /// Where it's written, for errors: a bare `await m` is rewritten as a `let _ = await m` that isn't in the source
+    let node: Syntax
 
     /// The statement without its value, e.g. `let user: User`
     var declaration: String {
@@ -632,7 +634,17 @@ private enum Statement {
            let value = binding.initializer?.value,
            let expression = marker.argument(of: value) {
             try marker.rejectBinds(in: expression)
-            self = .bind(Bind(statement: declaration, binding: binding, expression: expression))
+            self = .bind(Bind(statement: declaration, binding: binding, expression: expression, node: Syntax(declaration)))
+        } else if let value = item.item.as(ExpressionStmtSyntax.self)?.expression ?? item.item.as(ExprSyntax.self),
+                  let expression = marker.argument(of: value) {
+            // a bind on its own, for a step whose value isn't needed: `await m` is `let _ = await m`
+            try marker.rejectBinds(in: expression)
+            let declaration: DeclSyntax = "let _ = \(raw: value.trimmedDescription)"
+            guard let variable = declaration.as(VariableDeclSyntax.self), let binding = variable.bindings.first,
+                  let initializer = binding.initializer?.value, let program = marker.argument(of: initializer) else {
+                throw error("couldn't rewrite this bind as `let _ = …`", at: item)
+            }
+            self = .bind(Bind(statement: variable, binding: binding, expression: program, node: Syntax(item)))
         } else if let declaration = item.item.as(VariableDeclSyntax.self),
                   declaration.bindings.count == 1,
                   let binding = declaration.bindings.first,
@@ -665,7 +677,7 @@ private enum Statement {
     /// The statement, for errors
     var node: Syntax {
         switch self {
-        case .bind(let bind): Syntax(bind.statement)
+        case .bind(let bind): bind.node
         case .returnBind(let expression): Syntax(expression)
         case .branch(_, let item): Syntax(item)
         case .branchBinding(let declaration, _, _): Syntax(declaration)
