@@ -16,6 +16,15 @@ public extension Location {
         Choreography.locally(Self.self, body)
     }
 
+    /// Runs local code here that doesn't read any held value
+    ///
+    ///     let ad = bind(Responder.locally { ClientServices.getAD() })
+    static func locally<Effs: Choreography.Has, Output: ~Copyable>(
+        _ body: @escaping () -> Freer<Local, Output>
+    ) -> Freer<Effs, At<Self, Output>> {
+        Choreography.locally(Self.self) { _ in body() }
+    }
+
     /// Runs local code here, taking a value held here: `Choreography.locally(consuming:_:)`
     static func locally<Effs: Choreography.Has, Owned: ~Copyable, Output: ~Copyable>(
         consuming owned: consuming At<Self, Owned>,
@@ -44,6 +53,14 @@ public extension LocationSet {
         _ body: @escaping (Facet<Self>) -> Freer<Shared, Output>
     ) -> Freer<Effs, Faceted<Self, Output>> {
         Choreography.parallel(Self.self, body)
+    }
+
+    /// Runs the same local code at every member, without its facet: for code that doesn't read held values or ask
+    /// where it runs
+    static func parallel<Effs: Choreography.Has, Output: ~Copyable>(
+        _ body: @escaping () -> Freer<Shared, Output>
+    ) -> Freer<Effs, Faceted<Self, Output>> {
+        Choreography.parallel(Self.self) { _ in body() }
     }
 
     /// Runs the same local code at every member, taking its facet: `Choreography.parallel(consuming:_:)`

@@ -165,7 +165,7 @@ func runExchange<Me: Location>(as proof: Member<Me, Everyone>, local: Me.Local.I
 /// Each speaker asks Words for a word, through its own interpreter, and both build the same line from them
 func chorus() -> Freer<Choreography.Within<Everyone>, At<Speakers, String>> {
     #do { bind in
-        let words = bind(Choreography.parallel(Speakers.self) { _ in Words.word() })
+        let words = bind(Speakers.parallel { Words.word() })
         let everyWord = bind(Choreography.fanIn(words, to: Speakers.self))
         return bind(Choreography.congruently(Speakers.self) { speakers in speakers(everyWord).all.joined(separator: " ") })
     }
@@ -195,7 +195,7 @@ struct Secret: ~Copyable {
 func handshake() -> Freer<Choreography.Within<Everyone>, At<Alice, String>> {
     #do { bind in
         // the steps named after their location: Alice.locally is Choreography.locally(Alice.self)
-        let secret = bind(Alice.locally { _ in .pure(Secret(seed: "s")) })
+        let secret = bind(Alice.locally { .pure(Secret(seed: "s")) })
         // the value drives the step: it's held at Alice, so that's where it runs, and what it makes goes to Bob
         let atBob = bind(secret.reading { secret in .pure(secret.publicPart) }.send(to: Bob.self))
         let atAlice = bind(Bob.locally { reader in .pure(reader(atBob) + "!") }.send(to: Alice.self))
