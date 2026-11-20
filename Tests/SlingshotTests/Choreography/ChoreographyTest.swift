@@ -193,12 +193,13 @@ struct Secret: ~Copyable {
 /// the secret never leaves Alice, and #do carries it across both sends to the step that uses it up
 func handshake() -> Freer<Choreography.Within<Everyone>, At<Alice, String>> {
     #do { bind in
-        let secret = bind(Choreography.locally(Alice.self) { _ in .pure(Secret(seed: "s")) })
-        let publicPart = bind(Choreography.locally(borrowing: secret) { _, secret in .pure(secret.publicPart) })
+        // the steps named after their location: Alice.locally is Choreography.locally(Alice.self)
+        let secret = bind(Alice.locally { _ in .pure(Secret(seed: "s")) })
+        let publicPart = bind(Alice.locally(borrowing: secret) { _, secret in .pure(secret.publicPart) })
         let atBob = bind(Choreography.send(publicPart, to: Bob.self))
-        let answer = bind(Choreography.locally(Bob.self) { reader in .pure(reader(atBob) + "!") })
+        let answer = bind(Bob.locally { reader in .pure(reader(atBob) + "!") })
         let atAlice = bind(Choreography.send(answer, to: Alice.self))
-        return bind(Choreography.locally(consuming: consume secret) { reader, secret in
+        return bind(Alice.locally(consuming: consume secret) { reader, secret in
             .pure(secret.finish(with: reader(atAlice)))
         })
     }
@@ -208,14 +209,34 @@ func handshake() -> Freer<Choreography.Within<Everyone>, At<Alice, String>> {
 /// secret with all of them: the facets are noncopyable, read in place, then used up after a fanIn
 func pairing() -> Freer<Choreography.Within<Everyone>, Faceted<Pair, String>> {
     #do { bind in
-        let secrets = bind(Choreography.parallel(Pair.self) { facet in .pure(Secret(seed: facet.location.name)) })
-        let publicParts = bind(Choreography.parallel(borrowing: secrets) { _, secret in .pure(secret.publicPart) })
+        let secrets = bind(Pair.parallel { facet in .pure(Secret(seed: facet.location.name)) })
+        let publicParts = bind(Pair.parallel(borrowing: secrets) { _, secret in .pure(secret.publicPart) })
         let allParts = bind(Choreography.fanIn(publicParts, to: Pair.self))
-        return bind(Choreography.parallel(consuming: consume secrets) { facet, secret in
+        return bind(Pair.parallel(consuming: consume secrets) { facet, secret in
             // each finishes with its peer's part
             .pure(secret.finish(with: facet.others(facet(allParts)).joined(separator: ",")))
         })
     }
+}
+
+/// Alice reads her own facet of the pair's noncopyable secrets in place, and tells everyone about it:
+/// no membership proof, since Pair includes Alice
+func alicesPart() -> Freer<Choreography.Within<Everyone>, At<Everyone, String>> {
+    #do { bind in
+        let secrets = bind(Pair.parallel { facet in .pure(Secret(seed: facet.location.name)) })
+        let part = bind(Alice.locally(borrowing: secrets) { _, secret in .pure(secret.publicPart) })
+        let suffix = bind(Bob.constant("?"))
+        let atAlice = bind(Choreography.send(suffix, to: Alice.self))
+        let asked = bind(Alice.locally { reader in .pure(reader(part) + reader(atAlice)) })
+        let told = bind(Choreography.send(asked, to: Everyone.self))
+        return bind(Everyone.congruently { all in all(told) })
+    }
+}
+
+func runAlicesPart<Me: Location>(as proof: Member<Me, Everyone>, local: Me.Local.Interpreter, hub: Hub) async throws -> At<Everyone, String> {
+    let projected = Choreography.project(alicesPart(), as: proof)
+    let network = InMemoryNetwork(me: Me.name, everyone: Everyone.members.map { $0.name }, hub: hub)
+    return try await projected.run(with: Choreography.Node<Me.Local>.Interpreter(local: local, networking: network))
 }
 
 struct Refused: Error {}
@@ -287,6 +308,20 @@ struct ChoreographyTest {
         #expect(atAlice.take() == "s+S!")
         #expect(!atBob.isHeld)
         #expect(!atCarol.isHeld)
+        #expect(await hub.undelivered() == 0)
+    }
+
+    @Test("a location reads its own noncopyable facet in place, without a membership proof")
+    func aLocationReadsItsOwnFacetInPlace() async throws {
+        let hub = Hub()
+        async let alice = runAlicesPart(as: Alice.member(of: Everyone.self), local: aliceLocal, hub: hub)
+        async let bob = runAlicesPart(as: Bob.member(of: Everyone.self), local: bobLocal, hub: hub)
+        async let carol = runAlicesPart(as: Carol.member(of: Everyone.self), local: Direct(), hub: hub)
+
+        let (atAlice, atBob, atCarol) = try await (alice, bob, carol)
+        #expect(atAlice.take() == "ALICE?")
+        #expect(atBob.take() == "ALICE?")
+        #expect(atCarol.take() == "ALICE?")
         #expect(await hub.undelivered() == 0)
     }
 

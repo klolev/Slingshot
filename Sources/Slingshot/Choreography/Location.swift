@@ -83,7 +83,7 @@ public struct Congruent<S: LocationSet> {
 /// and `member(of:)`, the proof that a set contains it.
 ///
 ///     @Location enum Server {}
-@attached(member, names: named(name), named(Includes), named(Reader), named(member), named(subset), named(Local), named(Shared), named(lift), named(LocalIsAnEffectStack))
+@attached(member, names: named(name), named(Includes), named(Reader), named(member), named(subset), named(locally), named(Local), named(Shared), named(lift), named(LocalIsAnEffectStack))
 @attached(extension, conformances: Location)
 public macro Location() = #externalMacro(module: "SlingshotMacros", type: "LocationMacro")
 

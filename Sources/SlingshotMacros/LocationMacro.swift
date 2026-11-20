@@ -10,6 +10,7 @@ import SwiftSyntaxMacros
 ///                                                     protocol Includes: LocationSet {}
 ///                                                     struct Reader: LocationReader { ... }
 ///                                                     static func member<S: Includes>(of: S.Type) -> Member<Initiator, S>
+///                                                     static func locally<S: Includes, …>(borrowing facets: Faceted<S, …>, …)
 ///                                                 }
 ///                                                 extension Initiator: Location {}
 ///
@@ -83,6 +84,16 @@ public struct LocationMacro: MemberMacro, ExtensionMacro {
             /// The proof that `S` contains \(raw: name), for code that's generic over its locations.
             \(raw: access)static func member<S: Includes>(of set: S.Type) -> Slingshot.Member<\(raw: name), S> {
                 Slingshot.Member(_unchecked: ())
+            }
+            """,
+            """
+            /// Runs local code at \(raw: name), reading its facet of `facets` in place: for a noncopyable facet, like its
+            /// session among a set's. `S` includes \(raw: name), so no membership proof is needed.
+            \(raw: access)static func locally<Effs: Slingshot.Choreography.Has, S: Includes, Borrowed: ~Copyable, Output: ~Copyable>(
+                borrowing facets: borrowing Slingshot.Faceted<S, Borrowed>,
+                _ body: (Reader, borrowing Borrowed) throws -> Slingshot.Freer<Local, Output>
+            ) -> Slingshot.Freer<Effs, Slingshot.At<\(raw: name), Output>> {
+                Slingshot.Choreography.locally(borrowing: facets, of: member(of: S.self), body)
             }
             """,
             """
