@@ -120,11 +120,16 @@ extension Freer: Bindable where A: ~Copyable {
     public typealias Bound = A
 }
 
+extension Continuation: Bindable {
+    public typealias Bound = Argument
+}
+
 extension Optional: DoMonad {}
 extension Array: DoMonad {}
 extension Result: DoMonad {}
 extension Either: DoMonad {}
 extension IO: DoMonad {}
 extension Reader: DoMonad {}
+extension Continuation: DoMonad {}
 extension Freer: DoMonad where A: ~Copyable {}
 #endif

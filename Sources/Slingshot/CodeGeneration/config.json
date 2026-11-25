@@ -364,6 +364,13 @@
          "conformances": []
       },
       {
+          "name": "Continuation",
+          "type": "generic",
+          "arguments": ["Result", "Argument"],
+          "bound": "Argument",
+          "conformances": []
+      },
+      {
          "name": "Freer",
          "type": "generic",
          "arguments": ["Family", "A"],
@@ -441,7 +448,8 @@
             "IO",
             "Concurrently",
             "Reader",
-            "Freer"
+            "Freer",
+            "Continuation"
          ]
       }
    ]
